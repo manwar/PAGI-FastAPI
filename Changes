@@ -1,6 +1,6 @@
 Revision history for Perl extension PAGI::FastAPI
 
-0.0.1   2026-08-02
+0.0.1   2026-08-03
         - Initial CPAN release.
         - Asynchronous routing engine built on top of PAGI ($scope, $receive, $send).
         - Type-safe parameter & POST JSON body validation via Type::Tiny.
