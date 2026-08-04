@@ -118,9 +118,9 @@ $app->get('/users/{id}',
     }
 );
 
-# Concurrent queries: fire several Future-returning DBIC::Async calls
-# together and await them as a batch instead of one at a time, so the
-# worker pool actually runs them in parallel.
+# Concurrent queries: fire several Future-returning DBIx::Class::Async
+# calls together and await them as a batch instead of one at a time,
+# so the worker pool actually runs them in parallel.
 $app->get('/dashboard',
     dependencies => { schema => $get_schema },
     handler      => async sub ($c) {

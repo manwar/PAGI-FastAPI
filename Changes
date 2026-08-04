@@ -1,5 +1,10 @@
 Revision history for Perl extension PAGI::FastAPI
 
+0.0.3  2026-08-04
+       [EXAMPLE]
+       - Added integration demo script:
+         eg/integration_demo.pl
+
 0.0.2  2026-08-04
         [BUGFIX]
         - Routes no longer consider metacharacters in their static paths

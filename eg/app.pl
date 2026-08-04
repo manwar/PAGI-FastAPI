@@ -87,9 +87,8 @@ $app->post('/items',
     }
 );
 
-warn "PAGI::FastAPI app initialized.\n";
+warn "PAGI::FastAPI app initialised.\n";
 warn "OpenAPI Spec available at /openapi.json\n";
 warn "Swagger UI available at /docs\n";
 
-my $pagi_app = $app->to_app;
-$pagi_app;
+$app->to_app;

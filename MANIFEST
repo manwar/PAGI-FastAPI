@@ -1,5 +1,6 @@
 Changes
 eg/app.pl
+eg/integration_demo.pl
 eg/dbic_async_integration.pl
 eg/lib/MyApp/Schema.pm
 eg/lib/MyApp/Schema/Result/User.pm
