@@ -4,14 +4,14 @@ use v5.36;
 use experimental qw/try for_list/;
 use version;
 
-our $VERSION   = qv('v0.0.8');
+our $VERSION   = qv('v0.0.9');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
 use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(blessed);
 use PAGI::App::URLMap;
-use PAGI::FastAPI::WebSocket;
+use PAGI::WebSocket;
 use PAGI::FastAPI::Context;
 use PAGI::FastAPI::Depends qw(Depends);
 
@@ -23,7 +23,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v0.0.8
+Version v0.0.9
 
 =head1 SYNOPSIS
 
@@ -134,11 +134,20 @@ Version v0.0.8
     );
 
     # 9. Non-blocking WebSocket Endpoint
+    # $ws is a PAGI::WebSocket (from PAGI::Tools), so on_close/each_json/
+    # try_send_json/keepalive and more are all built in.
     $app->websocket('/ws', handler => async sub ($ws, $deps) {
         await $ws->accept;
-        while (my $msg = await $ws->receive_text) {
-            await $ws->send_text("Echo: $msg");
-        }
+
+        $ws->on_close(async sub {
+            my ($code, $reason) = @_;
+            # runs on every disconnect path, not just a clean loop exit
+        });
+
+        await $ws->each_json(async sub {
+            my ($data) = @_;
+            await $ws->send_json({ echo => $data });
+        });
     });
 
     # 10. Authentication via the companion PAGI::FastAPI::Security distribution
@@ -176,7 +185,7 @@ documentation generation.
 
 =item * B<Sub-App & Static Mounting:> Mount external PAGI applications, file drivers, or sub-routers using L</mount>.
 
-=item * B<WebSocket Support:> Full non-blocking WebSocket handshake and frame streaming via L<PAGI::FastAPI::WebSocket>.
+=item * B<WebSocket Support:> Full non-blocking WebSocket handshake and frame streaming via L<PAGI::WebSocket>.
 
 =item * B<Automatic Type Validation:> Request query parameters and JSON payloads are checked against L<Type::Tiny> constraints before reaching route handlers.
 
@@ -386,8 +395,9 @@ sub add_cors ($self, %opts) {
         }
     );
 
-Registers a WebSocket endpoint at C<$path>. The C<handler> receives a L<PAGI::FastAPI::WebSocket> instance
-and an optional HashRef of resolved dependencies.
+Registers a WebSocket endpoint at C<$path>. The C<handler> receives a L<PAGI::WebSocket> instance
+(from L<PAGI::Tools>, the reference WebSocket wrapper for the PAGI spec) and an optional HashRef of
+resolved dependencies.
 
 =cut
 
@@ -681,26 +691,14 @@ async sub _handle_websocket ($self, $scope, $receive, $send) {
 
     # Route Not Found -> Reject with 404 close code before accepting handshake
     unless ($route) {
-        my $ws = PAGI::FastAPI::WebSocket->new(
-            scope        => $scope,
-            receive      => $receive,
-            send         => $send,
-            path_params  => {},
-            query_params => {},
-        );
+        $scope->{path_params} = {};
+        my $ws = PAGI::WebSocket->new($scope, $receive, $send);
         await $ws->close(4004, "Not Found");
         return;
     }
 
-    my $query_params = $self->_parse_query_string($scope->{query_string} // '');
-
-    my $ws = PAGI::FastAPI::WebSocket->new(
-        scope        => $scope,
-        receive      => $receive,
-        send         => $send,
-        path_params  => $path_params  // {},
-        query_params => $query_params // {},
-    );
+    $scope->{path_params} = $path_params // {};
+    my $ws = PAGI::WebSocket->new($scope, $receive, $send);
 
     # Resolve dependencies only if defined and non-empty
     my $resolved_deps = {};
@@ -745,17 +743,6 @@ sub _match_route ($self, $method, $path) {
         }
     }
     return (undef, {});
-}
-
-sub _parse_query_string ($self, $query_string) {
-    my %query_params;
-    if (defined $query_string && length $query_string) {
-        for my $pair (split '&', $query_string) {
-            my ($k, $v) = split '=', $pair, 2;
-            $query_params{_uri_unescape($k)} = _uri_unescape($v // '');
-        }
-    }
-    return \%query_params;
 }
 
 sub _register_route ($self, $method, $path, $opts) {
@@ -1066,7 +1053,7 @@ the full documentation and an end-to-end JWT-verification example.
 
 =item * L<PAGI::App::URLMap> - Routing middleware for prefix-matching PAGI applications.
 
-=item * L<PAGI::FastAPI::WebSocket> - Asynchronous WebSocket object for PAGI::FastAPI.
+=item * L<PAGI::WebSocket> - Asynchronous WebSocket connection object (from PAGI::Tools) used by C<websocket()> handlers.
 
 =item * L<PAGI::FastAPI::Context> - Context object passed to route handlers.
 

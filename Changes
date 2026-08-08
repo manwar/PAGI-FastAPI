@@ -1,5 +1,21 @@
 Revision history for PAGI::FastAPI
 
+0.0.9  2026-08-08
+       [BREAKING]
+       - Removed PAGI::FastAPI::WebSocket entirely.
+       - websocket() handlers now receive a plain PAGI::WebSocket instance
+         directly. For anyone who wasn't relying on the class name itself
+         (isa checks, `use PAGI::FastAPI::WebSocket` directly), this is a
+         no-op - every method, return type, and calling convention is
+         unchanged from 0.0.10, since that version was already a strict,
+         override-free subclass.
+       - _handle_websocket now sets $scope->{path_params} directly and
+         calls PAGI::WebSocket->new($scope, $receive, $send) - the same
+         glue that used to live in the now-removed class's constructor.
+       - Dropped the now-unused JSON::MaybeXS prereq (it was only ever
+         needed by the removed class) and the PAGI::FastAPI::WebSocket
+         entry from t/00-load.t and the provides map.
+
 0.0.8  2026-08-08
        [DOCUMENTATION]
        - There is a new "MIXING WITH OTHER EVENT LOOPS" section which
