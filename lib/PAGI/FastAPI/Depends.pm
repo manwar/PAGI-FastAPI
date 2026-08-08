@@ -3,7 +3,7 @@ package PAGI::FastAPI::Depends;
 use v5.36;
 use version;
 
-our $VERSION   = qv('v0.0.7');
+our $VERSION   = qv('v0.0.8');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Exporter 'import';
@@ -18,7 +18,7 @@ PAGI::FastAPI::Depends - Dependency Injection Wrapper for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v0.0.7
+Version v0.0.8
 
 =head1 SYNOPSIS
 

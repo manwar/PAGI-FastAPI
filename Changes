@@ -1,5 +1,17 @@
 Revision history for PAGI::FastAPI
 
+0.0.8  2026-08-08
+       [DOCUMENTATION]
+       - There is a new "MIXING WITH OTHER EVENT LOOPS" section which
+         describes the interoperability issue between IO::Async (on which
+         PAGI::FastAPI is based) and Mojo::IOLoop-based libraries like
+         Mojo::Pg. The paragraph in question explains that IO::Async allows
+         calls to the non-blocking API to hang unless both libraries utilise
+         the same reactor. The other method of calling a library in a
+         blocking manner locks every other connection in the process. The
+         solution is detailed (IO::Async::Loop::EV + IO_ASYNC_LOOP=EV,
+         along with wrapping the callback API in a Future).
+
 0.0.7  2026-08-08
        [DOCUMENTATION]
        - Reworded PAGI::FastAPI::WebSocket's receive_text()/receive_bytes()

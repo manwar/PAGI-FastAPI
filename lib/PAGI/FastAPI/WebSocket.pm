@@ -3,7 +3,7 @@ package PAGI::FastAPI::WebSocket;
 use v5.36;
 use version;
 
-our $VERSION   = qv('v0.0.7');
+our $VERSION   = qv('v0.0.8');
 our $AUTHORITY = 'cpan:MANWAR';
 
 =encoding utf-8
@@ -14,7 +14,7 @@ PAGI::FastAPI::WebSocket - Asynchronous WebSocket connection object for PAGI::Fa
 
 =head1 VERSION
 
-Version v0.0.7
+Version v0.0.8
 
 =cut
 

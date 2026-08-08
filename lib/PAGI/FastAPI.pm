@@ -4,7 +4,7 @@ use v5.36;
 use experimental qw/try for_list/;
 use version;
 
-our $VERSION   = qv('v0.0.7');
+our $VERSION   = qv('v0.0.8');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -23,7 +23,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v0.0.7
+Version v0.0.8
 
 =head1 SYNOPSIS
 
@@ -910,6 +910,65 @@ with a JSON body:
     }
 
 Unmatched routes return C<HTTP 404 Not Found> with C<{"detail": "Not Found"}>.
+
+=head1 MIXING WITH OTHER EVENT LOOPS
+
+C<PAGI::FastAPI> operates completely on L<IO::Async>. If your handlers are
+also dependent on a library built over a I<different> event loop, most
+commonly either L<Mojo::Pg> or other modules built on top of L<Mojo::IOLoop>,
+calling that library's non-blocking/callback API will do nothing:
+L<IO::Async::Loop> and L<Mojo::IOLoop> are separate reactors by default and
+running one does not provide service to the other one. The observation that
+would arise from that is a request or C<on_startup> / C<on_shutdown> handler
+that hangs (and, under L<PAGI::Server>, eventually fails with a
+lifespan-timeout error) even though the call you're C<await>ing seems to be
+correct.
+
+On the other hand, utilising that library in blocking mode (such as plain
+C<< $pg->db->query(...) >> with no callback) results in it triggering
+immediately, whereas the entire operation of the process gets halted, all
+concurrent requests and WebSocket connections are paused for the time that
+the function call lasts, as it is a genuine blocking call without any
+cooperative aspect. At the same time, this is something that can easily
+happen by mistake; blocking mode is just the default and easiest way of
+calling most libraries, and it happens to work without any flaws when tried
+manually with one client prior to failing under concurrent load.
+
+The solution however stays the same in both situations. It is to make use of
+L<IO::Async> and also to arrange both loops to utilise the I<same> underlying
+reactor:
+
+=over 4
+
+=item 1.
+
+To make L<IO::Async> work with the reactor, one must install the
+L<IO::Async::Loop::EV> because it is the one used when one installs L<EV>,
+which is done by L<Mojo::IOLoop> automatically. Note that installing plain
+L<EV> will not work: the constructor used for L<IO::Async::Loop> will not
+automatically prefer C<EV> even if it has been installed.
+
+=item 2.
+
+Establish the C<IO_ASYNC_LOOP=EV> variable for the entire process prior to
+starting the loop. This is necessary even when the L<IO::Async::Loop> is
+created by someone else’s code, for instance, C<pagi-server>.
+
+    IO_ASYNC_LOOP=EV pagi-server your_app.pl
+
+=item 3.
+
+Throughout the whole task, utilise the callback/non-blocking variant of the
+API from another library (for example, the command C<< $pg->db->query($sql, @binds, $cb) >>),
+using a C<Future> to wrap up every call so that it can be executed using
+C<await>-ed like any other command. Consult the information available in the
+L<Future::AsyncAwait> regarding the routine C<< Future->new >>/C<< $f->done >>/C<< $f->fail >>
+for more information.
+
+=back
+
+Without both (1) and (2), the two reactors remain separate no matter how
+correctly you use C<await> on your side.
 
 =head1 AUTHENTICATION AND SECURITY
 
