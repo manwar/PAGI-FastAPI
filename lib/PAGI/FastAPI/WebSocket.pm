@@ -3,7 +3,7 @@ package PAGI::FastAPI::WebSocket;
 use v5.36;
 use version;
 
-our $VERSION   = qv('v0.0.6');
+our $VERSION   = qv('v0.0.7');
 our $AUTHORITY = 'cpan:MANWAR';
 
 =encoding utf-8
@@ -14,7 +14,7 @@ PAGI::FastAPI::WebSocket - Asynchronous WebSocket connection object for PAGI::Fa
 
 =head1 VERSION
 
-Version v0.0.6
+Version v0.0.7
 
 =cut
 
@@ -50,6 +50,13 @@ use JSON::MaybeXS qw(encode_json decode_json);
 C<PAGI::FastAPI::WebSocket> encapsulates an incoming WebSocket handshake and
 provides an asynchronous, event-driven interface for exchanging text, binary,
 and JSON frames over PAGI application servers.
+
+Each connection's handler runs as an independent task under
+L<Future::AsyncAwait> and L<IO::Async>. An C<await> inside one connection's
+handler (in C<receive_text>, C<receive_bytes>, C<receive_json>, C<send_text>,
+C<send_bytes>, C<send_json>, C<accept>, or C<close>) suspends only that
+connection's coroutine - it never blocks the event loop, and every other
+connection continues to be serviced concurrently while it's pending.
 
 =head1 METHODS
 
@@ -188,8 +195,10 @@ async sub close {
 
     my $text = await $ws->receive_text;
 
-Blocks asynchronously until a text frame arrives from the client. Returns
-C<undef> if the connection is closed or disconnected.
+Suspends the current coroutine until a text frame arrives from the client,
+without blocking the event loop or any other connection - other requests and
+WebSocket connections continue to be serviced while this call is pending.
+Returns C<undef> if the connection is closed or disconnected.
 
 =cut
 
@@ -220,8 +229,9 @@ async sub receive_text ($self) {
 
     my $raw_bytes = await $ws->receive_bytes;
 
-Blocks asynchronously until a binary frame arrives from the client. Returns
-C<undef> if closed.
+Suspends the current coroutine until a binary frame arrives from the client,
+without blocking the event loop or any other connection. Returns C<undef> if
+closed.
 
 =cut
 

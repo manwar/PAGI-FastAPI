@@ -1,5 +1,18 @@
 Revision history for PAGI::FastAPI
 
+0.0.7  2026-08-08
+       [DOCUMENTATION]
+       - Reworded PAGI::FastAPI::WebSocket's receive_text()/receive_bytes()
+         POD, which previously said they "block asynchronously" - a
+         self-contradictory phrase that read as "this blocks the server" to
+         at least one reader. Now states plainly that they suspend only the
+         current connection's coroutine and never block the event loop or
+         other connections. Added the same clarification to the module
+         DESCRIPTION. No code changes; the implementation was already
+         correctly non-blocking (verified against PAGI::Server::Connection's
+         per-connection dispatch, which detaches each handler via
+         adopt_future rather than awaiting it inline).
+
 0.0.6  2026-08-08
        [ENHANCEMENTS]
        - Full support for WebSocket routing has been added and is available
