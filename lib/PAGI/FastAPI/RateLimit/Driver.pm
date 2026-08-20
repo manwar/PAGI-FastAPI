@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.1.0');
+our $VERSION   = qv('v1.2.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 class PAGI::FastAPI::RateLimit::Driver {
@@ -30,7 +30,7 @@ PAGI::FastAPI::RateLimit::Driver - Abstract Base Class for Rate Limiting Storage
 
 =head1 VERSION
 
-Version v1.1.0
+Version v1.2.0
 
 =head1 SYNOPSIS
 
