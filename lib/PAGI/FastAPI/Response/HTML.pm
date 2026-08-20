@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.2.1');
+our $VERSION   = qv('v1.2.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -32,7 +32,7 @@ PAGI::FastAPI::Response::HTML - HTML Response Class for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v1.2.1
+Version v1.2.2
 
 =head1 SYNOPSIS
 
