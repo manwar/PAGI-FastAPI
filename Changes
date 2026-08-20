@@ -1,5 +1,9 @@
 Revision history for PAGI::FastAPI
 
+1.2.3  2026-08-20
+       [IMPROVEMENT]
+       - Fixed API Gateway demo app w.r.t setting header, thanks John Napiorkowski.
+
 1.2.2  2026-08-20
        [IMPROVEMENT]
        - Fixed API Gateway demo app, thanks John Napiorkowski.

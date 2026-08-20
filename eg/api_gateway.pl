@@ -1,5 +1,9 @@
 #!/usr/bin/env perl
 
+# Minimum Requirements:
+#   PAGI::FastAPI v1.2.3
+#   PAGI::FastAPI::Security v0.0.6
+#
 # API Gateway
 #   pagi-server api_gateway --port 3000
 #
@@ -30,12 +34,13 @@ my $app = PAGI::FastAPI->new(
 my $html_content = do { local $/; <DATA> };
 
 # 1. Bearer Token Extractor
-my $bearer = PAGI::FastAPI::Security::HTTPBearer->new;
+my $bearer = PAGI::FastAPI::Security::HTTPBearer->new(realm => 'APIGateway');
 
 # 2. Token Validator Dependency
 my $auth_check = async sub ($c) {
     my $token = $c->stash->{authToken} // '';
     unless (constant_time_eq($token, $SECRET_TOKEN)) {
+        $c->set_header($bearer->challenge_header(error => 'invalid_token'));
         $c->status(401);
         return { message => 'Unauthorised Access' };
     }
