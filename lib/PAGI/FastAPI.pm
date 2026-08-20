@@ -1537,10 +1537,6 @@ You can also look for information at:
 
 L<https://github.com/manwar/PAGI-FastAPI/issues>
 
-=item * CPAN Ratings
-
-L<http://cpanratings.perl.org/d/PAGI-FastAPI>
-
 =item * Search MetaCPAN
 
 L<https://metacpan.org/dist/PAGI-FastAPI/>
