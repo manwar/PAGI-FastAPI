@@ -1,5 +1,9 @@
 Revision history for PAGI::FastAPI
 
+1.2.4  2026-08-20
+       [IMPROVEMENT]
+       - Updated constant_time_eq() in the API Gateway demo app.
+
 1.2.3  2026-08-20
        [IMPROVEMENT]
        - Fixed API Gateway demo app w.r.t setting header, thanks John Napiorkowski.
