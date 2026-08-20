@@ -1,5 +1,9 @@
 Revision history for PAGI::FastAPI
 
+1.2.1  2026-08-20
+       [POD]
+       - Removed redundant link to CPAN Ratings, thanks @davorg.
+
 1.2.0  2026-08-20
        [FEATURE]
        - Added PAGI::FastAPI::TypedPath, providing a Depends()-compatible
