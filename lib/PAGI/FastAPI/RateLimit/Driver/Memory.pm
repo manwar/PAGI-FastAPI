@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.2.6');
+our $VERSION   = qv('v1.3.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use PAGI::FastAPI::RateLimit::Driver;
@@ -12,11 +12,37 @@ use PAGI::FastAPI::RateLimit::Driver;
 class PAGI::FastAPI::RateLimit::Driver::Memory :isa(PAGI::FastAPI::RateLimit::Driver) {
     use Future;
 
+    field $max_keys :param = 10000;
     field %_storage; # $key => { count => Int, expires_at => EpochInt }
 
     method _purge_expired ($key) {
-        if (exists $_storage{$key} && $_storage{$key}{expires_at} <= time) {
+        my $now = time();
+        if (exists $_storage{$key} && $_storage{$key}{expires_at} <= $now) {
             delete $_storage{$key};
+        }
+
+        # Probabilistic global sweep (~1% of operations) to clean unvisited keys
+        if (rand() < 0.01) {
+            $self->_sweep_all_expired($now);
+        }
+    }
+
+    method _sweep_all_expired ($now = time()) {
+        while (my ($k, $v) = each %_storage) {
+            delete $_storage{$k} if $v->{expires_at} <= $now;
+        }
+    }
+
+    method _enforce_max_keys () {
+        return if keys %_storage < $max_keys;
+
+        # Evict expired keys first
+        $self->_sweep_all_expired();
+
+        # If still exceeding capacity, evict the earliest-expiring key
+        if (keys %_storage >= $max_keys) {
+            my ($oldest_key) = sort { $_storage{$a}{expires_at} <=> $_storage{$b}{expires_at} } keys %_storage;
+            delete $_storage{$oldest_key} if defined $oldest_key;
         }
     }
 
@@ -25,6 +51,7 @@ class PAGI::FastAPI::RateLimit::Driver::Memory :isa(PAGI::FastAPI::RateLimit::Dr
 
         my $now = time;
         if (!exists $_storage{$key}) {
+            $self->_enforce_max_keys();
             $_storage{$key} = {
                 count      => 1,
                 expires_at => $now + $ttl,
@@ -46,6 +73,10 @@ class PAGI::FastAPI::RateLimit::Driver::Memory :isa(PAGI::FastAPI::RateLimit::Dr
         delete $_storage{$key};
         return Future->done(1);
     }
+
+    method count () {
+        return scalar keys %_storage;
+    }
 }
 
 =encoding utf-8
@@ -56,7 +87,7 @@ PAGI::FastAPI::RateLimit::Driver::Memory - Default In-Memory Storage Driver for 
 
 =head1 VERSION
 
-Version v1.2.6
+Version v1.3.0
 
 =head1 SYNOPSIS
 
@@ -98,6 +129,12 @@ Inherits all methods from L<PAGI::FastAPI::RateLimit::Driver>.
 =head2 C<new()>
 
 Instantiates a new in-memory rate limiting driver. Takes no required arguments.
+
+=over 4
+
+=item * C<max_keys> - Optional integer. Maximum distinct active rate-limit keys to retain in memory before forced eviction. Default: C<10000>.
+
+=back
 
 =head2 C<increment_async($key, $ttl)>
 

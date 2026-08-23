@@ -1,5 +1,26 @@
 Revision history for PAGI::FastAPI
 
+1.3.0  2026-08-23
+       [SECURITY FIXES]
+       - Fix rate-limit key resolution using untrusted HTTP request headers
+         (CWE-807). Default key_cb now strictly identifies clients by their
+         TCP socket address ($c->scope->{client}[0]) rather than prioritising
+         client-controlled headers. Header-derived identity can be explicitly
+         enabled by setting 'trust_proxies => 1'. Reported by CPANSec.
+       - Fix unbounded memory growth in PAGI::FastAPI::RateLimit::Driver::Memory
+         (CWE-770). Enforce a maximum active key limit (`max_keys`, defaults
+         to 10000) with key eviction, and add periodic probabilistic cache
+         sweeps to purge stale entries. Reported by CPANSec.
+
+       [ENHANCEMENTS]
+       - Add trust_proxies parameter to PAGI::FastAPI::Middleware::RateLimit.
+       - Add max_keys parameter and count() introspection method to
+         PAGI::FastAPI::RateLimit::Driver::Memory.
+
+       [TESTING]
+       - Add t/32-security_cwe_807_key_spoofing.t to test header-spoofing resilience.
+       - Add t/33-security_cwe_770_memory_cap.t to test driver memory bounds.
+
 1.2.6  2026-08-23
        [DEMO]
        - Added demo app for Webhook: eg/webhook_demo.pl

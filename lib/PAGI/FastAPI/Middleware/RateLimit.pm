@@ -4,21 +4,26 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.2.6');
+our $VERSION   = qv('v1.3.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
 use PAGI::FastAPI::RateLimit::Driver::Memory;
 
 class PAGI::FastAPI::Middleware::RateLimit {
-    field $requests :param = 100;
-    field $window   :param = 60;
-    field $key_cb   :param = undef;
-    field $driver   :param = undef;
+    field $requests      :param = 100;
+    field $window        :param = 60;
+    field $key_cb        :param = undef;
+    field $driver        :param = undef;
+    field $trust_proxies :param = 0;
 
     ADJUST {
         $driver //= PAGI::FastAPI::RateLimit::Driver::Memory->new();
         $key_cb //= sub ($c) {
+            # Rely on verified TCP peer socket by default
+            return $c->scope->{client}[0] // '127.0.0.1' unless $trust_proxies;
+
+            # Only inspect headers if explicit opt-in is enabled
             return $c->header('X-API-Key')
                 // $c->header('X-Forwarded-For')
                 // $c->scope->{client}[0]
@@ -29,8 +34,6 @@ class PAGI::FastAPI::Middleware::RateLimit {
     async method handle ($c, $next) {
         my $key = $key_cb->($c);
 
-        # Option A: If increment_async returns a HashRef: { count => Int, reset_at => Epoch }
-        # Option B: If Driver provides reset calculation helper
         my ($count, $reset_at) = await $driver->increment_async($key, $window);
 
         my $remaining = $requests - $count;
@@ -40,11 +43,6 @@ class PAGI::FastAPI::Middleware::RateLimit {
         my $retry_after = ($reset_at // ($now + $window)) - $now;
         $retry_after    = 1 if $retry_after <= 0;
 
-        # add_header (not set_header): when multiple RateLimit middleware
-        # instances are stacked (e.g. an app-wide limiter plus a per-route
-        # limiter), each layer's budget is independent and all of them
-        # should be visible on the response, so these are intentionally
-        # allowed to appear more than once.
         $c->add_header('x-ratelimit-limit'     => $requests);
         $c->add_header('x-ratelimit-remaining' => $remaining);
         $c->add_header('x-ratelimit-reset'     => $reset_at) if $reset_at;
@@ -71,7 +69,7 @@ PAGI::FastAPI::Middleware::RateLimit - Async Rate Limiting Middleware for PAGI::
 
 =head1 VERSION
 
-Version v1.2.6
+Version v1.3.0
 
 =head1 SYNOPSIS
 
@@ -168,6 +166,11 @@ string key identifying the client. By default, it falls back through:
 =item * C<driver> - Optional storage object implementing
 C<increment_async($key, $window)>, C<get_async($key)> and C<reset_async($key)>.
 Defaults to an instance of L<PAGI::FastAPI::RateLimit::Driver::Memory>.
+
+=item * C<trust_proxies> - Optional boolean. When set to false (default),
+the default identification key strictly uses the remote socket address
+(C<< $c->scope->{client}[0] >>) to prevent header spoofing bypasses. Set to
+true to allow fallback to C<X-API-Key> or C<X-Forwarded-For>.
 
 =back
 

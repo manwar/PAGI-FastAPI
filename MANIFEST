@@ -71,6 +71,8 @@ t/28-cookies.t
 t/29-response_model.t
 t/30-typed_path.t
 t/31-middleware_exception_handler.t
+t/32-security_cwe_807_key_spoofing.t
+t/33-security_cwe_770_memory_cap.t
 TODO.md
 xt/changes.t
 xt/manifest.t
