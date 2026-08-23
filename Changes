@@ -1,5 +1,9 @@
 Revision history for PAGI::FastAPI
 
+1.2.6  2026-08-23
+       [DEMO]
+       - Added demo app for Webhook: eg/webhook_demo.pl
+
 1.2.5  2026-08-21
        [IMPROVEMENT]
        - Updated demo app and capture job_id when adding task.

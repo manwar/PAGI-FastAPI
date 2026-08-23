@@ -11,6 +11,7 @@ eg/order_microservice.pl
 eg/rate_limit_demo.pl
 eg/sse_demo.pl
 eg/user_microservice.pl
+eg/webhook_demo.pl
 eg/websocket_app.pl
 lib/PAGI/FastAPI.pm
 lib/PAGI/FastAPI/BotProtection.pm
