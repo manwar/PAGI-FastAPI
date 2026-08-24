@@ -1,5 +1,18 @@
 Revision history for PAGI::FastAPI
 
+1.4.0  2026-08-24
+       [SECURITY FIXES]
+       - Fix silent dropping of object-based middleware in to_app() (CWE-306,
+         CWE-352). Object middleware (implementing 'wrap' or 'call', such as
+         CSRF and Basic Auth) registered via 'add_middleware' or 'enable_csrf'
+         were ignored when deployed using to_app(), bypassing authentication
+         and forgery protection. Unified to_app() and to_pagi() execution
+         pipelines. Reported by CPANSec.
+
+        [TESTING]
+        - Add t/34-security_cwe_306_object_middleware_execution.t to verify
+          object middleware pipeline execution in to_app().
+
 1.3.0  2026-08-23
        [SECURITY FIXES]
        - Fix rate-limit key resolution using untrusted HTTP request headers

@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.3.0');
+our $VERSION   = qv('v1.4.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -69,7 +69,7 @@ PAGI::FastAPI::Middleware::RateLimit - Async Rate Limiting Middleware for PAGI::
 
 =head1 VERSION
 
-Version v1.3.0
+Version v1.4.0
 
 =head1 SYNOPSIS
 

@@ -4,7 +4,7 @@ use v5.38;
 use experimental qw/class try for_list/;
 use version;
 
-our $VERSION   = qv('v1.3.0');
+our $VERSION   = qv('v1.4.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -156,22 +156,9 @@ class PAGI::FastAPI {
     }
 
     method to_pagi () {
-        my $app = $self->to_app(); # Get core route/CORS app
-
-        # Wrap PAGI middleware objects in reverse (LIFO order)
-        for my $mw (reverse @$pagi_middlewares) {
-            if (blessed($mw) && $mw->can('wrap')) {
-                $app = $mw->wrap($app);
-            }
-            elsif (blessed($mw) && $mw->can('to_app')) {
-                $app = $mw->to_app($app);
-            }
-            elsif (ref $mw eq 'CODE') {
-                $app = $mw->($app);
-            }
-        }
-
-        return $app;
+        # Delegate directly to to_app to ensure identical pipeline execution
+        # and eliminate double-wrapping.
+        return $self->to_app();
     }
 
     method to_app {
@@ -194,6 +181,20 @@ class PAGI::FastAPI {
         if ($cors_options) {
             $final_app = PAGI::Middleware::CORS->new(%$cors_options)
                                                ->wrap($final_app);
+        }
+
+        # Wrap PAGI middleware objects in reverse (LIFO order)
+        # Outermost layer wrapping around mounts and CORS
+        for my $mw (reverse @$pagi_middlewares) {
+            if (blessed($mw) && $mw->can('wrap')) {
+                $final_app = $mw->wrap($final_app);
+            }
+            elsif (blessed($mw) && $mw->can('to_app')) {
+                $final_app = $mw->to_app($final_app);
+            }
+            elsif (ref $mw eq 'CODE') {
+                $final_app = $mw->($final_app);
+            }
         }
 
         return $final_app;
@@ -672,7 +673,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v1.3.0
+Version v1.4.0
 
 =head1 SYNOPSIS
 
