@@ -4,7 +4,7 @@ use v5.38;
 use experimental qw/class try for_list/;
 use version;
 
-our $VERSION   = qv('v1.4.0');
+our $VERSION   = qv('v1.5.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -673,7 +673,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v1.4.0
+Version v1.5.0
 
 =head1 SYNOPSIS
 

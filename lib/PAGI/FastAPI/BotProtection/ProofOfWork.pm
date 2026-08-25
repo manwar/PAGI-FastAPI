@@ -4,16 +4,21 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.4.0');
+our $VERSION   = qv('v1.5.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Digest::SHA qw(sha256_hex hmac_sha256_hex);
 use Time::HiRes  qw(time);
 
 class PAGI::FastAPI::BotProtection::ProofOfWork {
-    field $difficulty :param = 3;                         # Number of required leading zeros in SHA-256 hash
-    field $secret     :param = 'change_me_in_production'; # HMAC secret seed to prevent challenge forgery
-    field $ttl        :param = 300;                       # Challenge validity duration in seconds
+    field $difficulty :param = 3;   # Number of required leading zeros in SHA-256 hash
+    field $ttl        :param = 300; # Challenge validity duration in seconds
+    field $secret     :param;
+
+    ADJUST {
+        die "ProofOfWork: 'secret' parameter must be defined and non-empty in production\n"
+            unless defined $secret && length($secret) > 0;
+    }
 
     # Fields are joined/split on "|" rather than ":" because IPv6 addresses
     # (e.g. "::1", "2001:db8::1") legitimately contain colons; splitting a
@@ -78,7 +83,7 @@ PAGI::FastAPI::BotProtection::ProofOfWork - Stateless Proof-of-Work Bot Mitigati
 
 =head1 VERSION
 
-Version v1.4.0
+Version v1.5.0
 
 =head1 SYNOPSIS
 
@@ -133,11 +138,10 @@ calculated SHA-256 hash collision. Higher values exponentially increase CPU
 effort for the client while keeping server verification costs near instant.
 Defaults to C<3>.
 
-=item * C<secret> (Optional)
+=item * C<secret> (Required)
 
 A secret seed scalar used to generate HMAC signatures for challenges.
-B<Must be customized in production environments> to prevent challenge
-tampering or forgery. Defaults to C<'change_me_in_production'>.
+B<Must be provided and non-empty> to prevent challenge tampering or forgery.
 
 =item * C<ttl> (Optional)
 

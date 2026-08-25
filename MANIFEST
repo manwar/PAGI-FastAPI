@@ -74,6 +74,7 @@ t/31-middleware_exception_handler.t
 t/32-security_cwe_807_key_spoofing.t
 t/33-security_cwe_770_memory_cap.t
 t/34-security_cwe_306_object_middleware_execution.t
+t/35-security_cwe_1188_secret_default.t
 TODO.md
 xt/changes.t
 xt/manifest.t

@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.4.0');
+our $VERSION   = qv('v1.5.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -12,11 +12,14 @@ use PAGI::FastAPI::BotProtection::ProofOfWork;
 
 class PAGI::FastAPI::Middleware::BotProtection {
     field $difficulty :param = 3;
-    field $secret     :param = 'change_me_in_production';
     field $ttl        :param = 300;
+    field $secret     :param;
     field $pow;
 
     ADJUST {
+        die "BotProtection: 'secret' parameter must be defined and non-empty in production\n"
+            unless defined $secret && length($secret) > 0;
+
         $pow = PAGI::FastAPI::BotProtection::ProofOfWork->new(
             difficulty => $difficulty,
             secret     => $secret,
@@ -60,7 +63,7 @@ PAGI::FastAPI::Middleware::BotProtection - Asynchronous Proof-of-Work Bot Protec
 
 =head1 VERSION
 
-Version v1.4.0
+Version v1.5.0
 
 =head1 SYNOPSIS
 
@@ -71,7 +74,7 @@ Version v1.4.0
     # Register bot protection middleware
     $app->add_bot_protection(
         difficulty => 3,
-        secret     => $ENV{BOT_PROTECTION_SECRET},
+        secret     => $ENV{BOT_PROTECTION_SECRET} // die("BOT_PROTECTION_SECRET is required"),
         ttl        => 300,
     );
 

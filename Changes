@@ -1,5 +1,20 @@
 Revision history for PAGI::FastAPI
 
+1.5.0   2026-08-25
+        [SECURITY FIXES]
+        - CWE-1188: Removed default fallback string 'change_me_in_production'
+          from $secret in PAGI::FastAPI::BotProtection::ProofOfWork and
+          PAGI::FastAPI::Middleware::BotProtection.
+        - Enforced mandatory check for defined $secret; throws an exception
+          when unconfigured.
+
+        [POD]
+        - Updated BotProtection SYNOPSIS and POD documentation to reflect
+          required secret initialisation.
+
+        [TESTING]
+        - Added unit test: t/35-security_cwe_1188_secret_default.t
+
 1.4.0  2026-08-24
        [SECURITY FIXES]
        - Fix silent dropping of object-based middleware in to_app() (CWE-306,
