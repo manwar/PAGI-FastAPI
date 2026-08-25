@@ -1,3 +1,5 @@
+#!/usr/bin/env perl
+
 use v5.38;
 use Test::More;
 use Test::Fatal qw(exception);
@@ -63,4 +65,4 @@ ok(
     'Forged zero-difficulty challenge fails verification due to invalid HMAC signature'
 );
 
-done_testing();
+done_testing;
