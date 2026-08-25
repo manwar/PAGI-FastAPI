@@ -1,5 +1,21 @@
 Revision history for PAGI::FastAPI
 
+1.6.0   2026-08-25
+        [SECURITY FIXES]
+        - Added 'trust_proxies' configuration parameter to
+          PAGI::FastAPI::Middleware::BotProtection, defaults to 0.
+        - Added pow() reader method to PAGI::FastAPI::Middleware::BotProtection
+          to expose the underlying PAGI::FastAPI::BotProtection::ProofOfWork
+          instance for inspection and testing.
+        - Fixed IP spoofing security vulnerability by ignoring untrusted
+          'X-Forwarded-For' headers unless 'trust_proxies' is explicitly
+          enabled.
+        - Properly extract the original client IP from comma-separated
+          'X-Forwarded-For' proxy chains when 'trust_proxies' is enabled.
+
+        [TESTING]
+        - Added unit test: t/36-middleware_bot_protection_trust_proxies.t
+
 1.5.0   2026-08-25
         [SECURITY FIXES]
         - CWE-1188: Removed default fallback string 'change_me_in_production'

@@ -4,16 +4,17 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.5.0');
+our $VERSION   = qv('v1.6.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
 use PAGI::FastAPI::BotProtection::ProofOfWork;
 
 class PAGI::FastAPI::Middleware::BotProtection {
-    field $difficulty :param = 3;
-    field $ttl        :param = 300;
-    field $secret     :param;
+    field $difficulty    :param = 3;
+    field $ttl           :param = 300;
+    field $trust_proxies :param = 0;
+    field $secret        :param;
     field $pow;
 
     ADJUST {
@@ -27,10 +28,14 @@ class PAGI::FastAPI::Middleware::BotProtection {
         );
     }
 
+    method pow () { return $pow }
+
     async method handle ($c, $next) {
-        my $client_ip = $c->header('x-forwarded-for')
-            // $c->scope->{client}[0]
-            // '127.0.0.1';
+        my $client_ip;
+        if ($trust_proxies && (my $forwarded = $c->header('x-forwarded-for'))) {
+            ($client_ip) = split /\s*,\s*/, $forwarded;
+        }
+        $client_ip //= $c->scope->{client}[0] // '127.0.0.1';
 
         # Standard header keys expected from client requests
         my $challenge = $c->header('x-bot-challenge');
@@ -63,7 +68,7 @@ PAGI::FastAPI::Middleware::BotProtection - Asynchronous Proof-of-Work Bot Protec
 
 =head1 VERSION
 
-Version v1.5.0
+Version v1.6.0
 
 =head1 SYNOPSIS
 
