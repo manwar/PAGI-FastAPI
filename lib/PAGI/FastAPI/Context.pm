@@ -4,20 +4,25 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.6.0');
+our $VERSION   = qv('v1.7.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 class PAGI::FastAPI::Context {
     use Future::IO;
+    use Scalar::Util ();
+    use PAGI::FastAPI::Response::File qw(file_response);
 
-    field $scope        :param = {};
-    field $query_params :param = {};
-    field $path_params  :param = {};
-    field $body         :param = undef;
-    field $status       :param = 200;
-    field $res_headers  :param = [];
-    field $stash        :param = {};
-    field $pagi_context :param = undef;
+    field $scope                :param = {};
+    field $query_params         :param = {};
+    field $path_params          :param = {};
+    field $body                 :param = undef;
+    field $form_data            :param = undef;
+    field $uploaded_files       :param = {};
+    field $status               :param = 200;
+    field $res_headers          :param = [];
+    field $stash                :param = {};
+    field $pagi_context         :param = undef;
+    field $background_registrar :param = undef;
 
     method scope { $scope }
 
@@ -92,6 +97,14 @@ class PAGI::FastAPI::Context {
         return undef;
     }
 
+    method file ($filepath, %opts) {
+        # For static assets served directly (like CSS/JS),
+        # set as_attachment => 0 by default unless explicitly overridden.
+        $opts{as_attachment} //= 0;
+
+        return file_response($filepath, %opts);
+    }
+
     method html ($content, %opts) {
         use PAGI::FastAPI::Response::HTML;
 
@@ -128,6 +141,38 @@ class PAGI::FastAPI::Context {
         return $body;
     }
 
+    method form_data ($key = undef) {
+        if (defined $key) {
+            return (ref $form_data eq 'HASH') ? $form_data->{$key} : undef;
+        }
+        return $form_data;
+    }
+
+    method uploaded_files ($name = undef) {
+        if (defined $name) {
+            return $uploaded_files->{$name} // [];
+        }
+        return $uploaded_files;
+    }
+
+    method uploaded_file ($name) {
+        my $files = $uploaded_files->{$name} // [];
+        return $files->[0];
+    }
+
+    method background ($code) {
+        die "background() expects a CODE reference (e.g. an async sub)\n"
+            unless ref $code eq 'CODE';
+
+        my $future = $code->();
+
+        die "background() callback did not return a Future, did you "
+          . "forget 'async' before 'sub'?\n"
+            unless Scalar::Util::blessed($future) && $future->isa('Future');
+
+        return $background_registrar ? $background_registrar->($future) : $future;
+    }
+
     method param ($key) {
         return $self->path_param($key)
             // $self->query_param($key)
@@ -145,7 +190,7 @@ PAGI::FastAPI::Context - Request and Response Lifecycle Context for PAGI::FastAP
 
 =head1 VERSION
 
-Version v1.6.0
+Version v1.7.0
 
 =head1 SYNOPSIS
 
@@ -192,6 +237,13 @@ Constructor called internally by L<PAGI::FastAPI>. Accepts named arguments:
 =item * C<path_params> - HashRef of route path variables.
 
 =item * C<body> - Decoded payload body (HashRef, ArrayRef, or Scalar).
+
+=item * C<form_data> - HashRef of parsed form fields, for a request whose
+body was C<application/x-www-form-urlencoded> or C<multipart/form-data>.
+C<undef> for a JSON body.
+
+=item * C<uploaded_files> - HashRef of uploaded file parts from a
+C<multipart/form-data> body, keyed by field name.
 
 =item * C<status> - Initial HTTP response code (default: C<200>).
 
@@ -329,6 +381,57 @@ and returns its scalar value, or C<undef> if missing.
 
     my $auth = $c->header('Authorization');
 
+=head2 C<file($filepath, %options)>
+
+    $app->get('/assets/app.js', handler => async sub ($c) {
+        return $c->file('/var/www/static/app.js');
+    });
+
+    $app->get('/reports/annual.pdf', handler => async sub ($c) {
+        return $c->file(
+            '/var/www/reports/2026.pdf',
+            as_attachment => 1,
+            filename      => 'annual-report-2026.pdf',
+        );
+    });
+
+Constructs and returns a L<PAGI::FastAPI::Response::File> instance to stream a
+file from disk to the client.
+
+Delegates directly to L<PAGI::FastAPI::Response::File/file_response>, with a
+context-aware default of C<as_attachment =E<gt> 0> to ensure assets (such as CSS,
+JavaScript, or images) display inline in the browser rather than triggering a
+download prompt.
+
+Accepts the following named options:
+
+=over 4
+
+=item * C<as_attachment> (Boolean, optional)
+
+Controls the C<Content-Disposition> response header. Defaults to C<0> (inline)
+when called via C<< $c->file >>. Set to C<1> to force the browser to download
+the file as an attachment.
+
+=item * C<content_type> (String, optional)
+
+Explicitly overrides the MIME type sent in the C<Content-Type> header. When
+omitted, the content type is guessed automatically from the file extension of
+C<$filepath>.
+
+=item * C<filename> (String, optional)
+
+Sets a custom filename string for the C<Content-Disposition> header. Useful when
+serving files stored under internal hashes or non-descriptive paths on disk.
+
+=item * C<status> (Integer, optional)
+
+The HTTP status code to return with the file response. Defaults to C<200>.
+
+=back
+
+Returns an instance of L<PAGI::FastAPI::Response::File>.
+
 =head2 C<html($content, %options)>
 
     $app->get('/about', handler => async sub ($c) {
@@ -407,6 +510,72 @@ value for that key, or C<undef> if missing or if the body is not a HashRef.
     my $full_body = $c->body;
     my $user_name = $c->body('username');
 
+=head2 C<form_data([ $key ])>
+
+    $app->post('/upload', handler => async sub ($c) {
+        my $caption = $c->form_data('caption');
+        ...
+    });
+
+Returns the parsed form fields for a request body that was either
+C<application/x-www-form-urlencoded> or C<multipart/form-data>, with the
+same calling convention as C<body>: no arguments returns the full HashRef,
+a C<$key> argument returns that one field's value (or C<undef>).
+
+For a C<multipart/form-data> body, this returns only the plain text
+fields, file parts are available separately via C<uploaded_files>.
+C<undef> for a JSON body (JSON is not a form).
+
+Note that for both C<application/x-www-form-urlencoded> and
+C<multipart/form-data> bodies, C<body> and C<form_data> return the I<same>
+HashRef, C<form_data> exists as a clearer-named alias for form-sourced
+data specifically, not as a separate parse.
+
+=head2 C<uploaded_files([ $field_name ])>
+
+    my $all_files   = $c->uploaded_files;           # HashRef, keyed by field name
+    my $avatar_list = $c->uploaded_files('avatar'); # ArrayRef for one field
+
+Returns uploaded file parts from a C<multipart/form-data> request body.
+
+With no arguments, returns a HashRef keyed by field name. With a
+C<$field_name> argument, returns just that field's files (or an empty
+ArrayRef if none were uploaded under that name).
+
+Each file is always represented as an ArrayRef of HashRefs, even when only
+one file was uploaded for that field, so a single-file C<< <input
+type="file"> >> and a multi-file C<< <input type="file" multiple> >> have
+the same shape to consume. Each file HashRef has:
+
+=over 4
+
+=item * C<filename> - The original filename supplied by the client.
+
+=item * C<content_type> - The C<Content-Type> declared for that part, or
+C<application/octet-stream> if none was given.
+
+=item * C<content> - The raw file bytes.
+
+=item * C<size> - Byte length of C<content>.
+
+=back
+
+B<Note:> file contents are currently held fully in memory for the
+duration of the request; there is no streaming or on-disk spooling for
+large uploads.
+
+=head2 C<uploaded_file($field_name)>
+
+    my $avatar = $c->uploaded_file('avatar');
+    if ($avatar) {
+        say "Got $avatar->{filename}, $avatar->{size} bytes";
+    }
+
+Convenience accessor for the common single-file-per-field case. Returns
+the I<first> uploaded file HashRef for C<$field_name> (see
+C<uploaded_files> above for its shape), or C<undef> if no file was
+uploaded under that name.
+
 =head2 C<param($key)>
 
 Convenience parameter accessor that checks parameter stores in priority order:
@@ -425,6 +594,41 @@ data between middleware, dependency injection blocks, and final route
 handlers.
 
     $c->stash->{db_session} = $db;
+
+=head2 C<background($code)>
+
+    $app->post('/signup', handler => async sub ($c) {
+        my $email = $c->body('email');
+
+        $c->background(async sub {
+            await send_welcome_email($email);   # runs after the response is sent
+        });
+
+        return { status => 'account created' };
+    });
+
+Schedules an C<async sub> to keep running I<after> the response has
+already been sent, without making the caller wait for it, for
+fire-and-forget work like sending an email, writing an audit log entry, or
+warming a cache.
+
+C<$code> must be an C<async sub> (or any coderef that, when called with no
+arguments, returns a L<Future>); C<background> calls it immediately and
+retains the resulting Future for you, so it won't be garbage-collected or
+silently dropped before it completes, the same way the framework already
+owns the request/response lifecycle. A task that dies is logged (via
+C<warn>) rather than crashing the request that scheduled it, or any other
+in-flight request.
+
+Retention is owned by the application, not the request: scheduled tasks
+outlive the C<$c> that scheduled them, and any still-pending tasks are
+awaited during PAGI Lifespan C<shutdown> (before your own C<on_shutdown>
+callbacks run), so a task doesn't get killed mid-flight by process exit
+under normal shutdown.
+
+Dies immediately, before scheduling anything, if C<$code> isn't a coderef,
+or if calling it didn't return a L<Future> (the most common cause of the
+latter: forgetting the C<async> keyword).
 
 =head1 AUTHOR
 

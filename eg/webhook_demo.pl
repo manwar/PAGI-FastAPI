@@ -307,7 +307,3 @@ __DATA__
 </script>
 </body>
 </html>
-HTML
-    }
-);
-

@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.6.0');
+our $VERSION   = qv('v1.7.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use PAGI::FastAPI::Response;
@@ -57,7 +57,7 @@ sub file_response ($path, %opts) {
     close $fh;
 
     my $content_type = $opts{content_type} // _guess_content_type($path);
-    my $filename      = $opts{filename} // do { (my $n = $path) =~ s{.*/}{}; $n };
+    my $filename     = $opts{filename}     // do { (my $n = $path) =~ s{.*/}{}; $n };
 
     return PAGI::FastAPI::Response::File->new(
         body     => $data,
@@ -68,15 +68,17 @@ sub file_response ($path, %opts) {
 }
 
 sub _guess_content_type ($path) {
-    return 'text/plain; charset=utf-8'        if $path =~ /\.te?xt$/i;
-    return 'text/html; charset=utf-8'         if $path =~ /\.html?$/i;
-    return 'application/json'                 if $path =~ /\.json$/i;
-    return 'text/csv'                         if $path =~ /\.csv$/i;
-    return 'application/pdf'                  if $path =~ /\.pdf$/i;
-    return 'image/png'                        if $path =~ /\.png$/i;
-    return 'image/jpeg'                       if $path =~ /\.jpe?g$/i;
-    return 'image/gif'                        if $path =~ /\.gif$/i;
-    return 'image/svg+xml'                    if $path =~ /\.svg$/i;
+    return 'text/css; charset=utf-8'               if $path =~ /\.css$/i;
+    return 'application/javascript; charset=utf-8' if $path =~ /\.js$/i;
+    return 'text/plain; charset=utf-8'             if $path =~ /\.te?xt$/i;
+    return 'text/html; charset=utf-8'              if $path =~ /\.html?$/i;
+    return 'application/json'                      if $path =~ /\.json$/i;
+    return 'text/csv'                              if $path =~ /\.csv$/i;
+    return 'application/pdf'                       if $path =~ /\.pdf$/i;
+    return 'image/png'                             if $path =~ /\.png$/i;
+    return 'image/jpeg'                            if $path =~ /\.jpe?g$/i;
+    return 'image/gif'                             if $path =~ /\.gif$/i;
+    return 'image/svg+xml'                         if $path =~ /\.svg$/i;
     return 'application/octet-stream';
 }
 
@@ -88,7 +90,7 @@ PAGI::FastAPI::Response::File - File Download Response for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v1.6.0
+Version v1.7.0
 
 =head1 SYNOPSIS
 

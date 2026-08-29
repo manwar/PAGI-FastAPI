@@ -1,8 +1,13 @@
 Changes
+eg/assets/swagger-ui-bundle.js
+eg/assets/swagger-ui.css
 eg/api_gateway.pl
 eg/app.pl
+eg/background_demo.pl
 eg/csrf_demo.pl
 eg/dbic_async_integration.pl
+eg/docs_demo.pl
+eg/file_uploads_demo.pl
 eg/integration_demo.pl
 eg/lib/MyApp/Schema.pm
 eg/lib/MyApp/Schema/Result/User.pm
@@ -76,7 +81,9 @@ t/33-security_cwe_770_memory_cap.t
 t/34-security_cwe_306_object_middleware_execution.t
 t/35-security_cwe_1188_secret_default.t
 t/36-middleware_bot_protection_trust_proxies.t
-TODO.md
+t/37-multipart_file_uploads.t
+t/38-background_tasks.t
+t/39-openapi_route_options.t
 xt/changes.t
 xt/manifest.t
 xt/pod.t

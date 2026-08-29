@@ -3,7 +3,7 @@ package PAGI::FastAPI::TypedPath;
 use v5.38;
 use version;
 
-our $VERSION   = qv('v1.6.0');
+our $VERSION   = qv('v1.7.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Exporter 'import';
@@ -82,7 +82,7 @@ PAGI::FastAPI::TypedPath - Path Parameter Validation for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v1.6.0
+Version v1.7.0
 
 =head1 SYNOPSIS
 

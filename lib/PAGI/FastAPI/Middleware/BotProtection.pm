@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.6.0');
+our $VERSION   = qv('v1.7.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -68,7 +68,7 @@ PAGI::FastAPI::Middleware::BotProtection - Asynchronous Proof-of-Work Bot Protec
 
 =head1 VERSION
 
-Version v1.6.0
+Version v1.7.0
 
 =head1 SYNOPSIS
 
@@ -95,6 +95,71 @@ response accompanied by challenge parameters in the response headers. Real
 client environments (such as web browsers executing background JavaScript)
 solve the puzzle and retry the request, bypassing automated bots and naive
 scrapers.
+
+=head1 CONSTRUCTOR
+
+=head2 new(%options)
+
+Creates a new instance of L<PAGI::FastAPI::Middleware::BotProtection>.
+
+Accepted options:
+
+=over 4
+
+=item * C<secret> (required)
+
+A non-empty string used as the C<HMAC> key to sign and verify generated
+challenges.
+
+B<Security Note:> Keep this value secure and avoid using hardcoded default
+strings in production environments.
+
+=item * C<difficulty> (optional)
+
+An integer specifying the required leading zero bits (or hexadecimal zeros)
+for the Proof-of-Work solution. Defaults to C<3>.
+
+Higher values exponentially increase the CPU time required for the client to
+generate a valid nonce, while lower values reduce client computation
+overhead.
+
+=item * C<ttl> (optional)
+
+The time-to-live duration for issued challenges, in seconds. Defaults to
+C<300> (5 minutes).
+
+Challenges presented after this time window has elapsed will be rejected as
+expired, requiring the client to request a fresh challenge.
+
+=item * C<trust_proxies> (optional)
+
+Boolean flag indicating whether to trust incoming proxy headers for client
+IP resolution. Defaults to C<0> (false).
+
+When set to C<0>, the middleware extracts the client IP strictly from the
+direct TCP connection socket, ignoring client-supplied headers. When set to
+C<1>, the middleware parses the first IP from the C<X-Forwarded-For> header
+if present.
+
+B<Security Note:> Only set C<trust_proxies> to C<1> when running behind a
+trusted reverse proxy (such as NGINX, HAProxy, or AWS ALB) that strips or
+overwrites incoming client header values.
+
+=back
+
+=head1 METHODS
+
+=head2 pow
+
+    my $pow = $mw->pow;
+
+Returns the underlying L<PAGI::FastAPI::BotProtection::ProofOfWork> instance
+managed by this middleware.
+
+This accessor exposes the Proof-of-Work engine directly to callers, allowing
+custom challenge creation (via C<create_challenge>), manual verification
+(via C<verify>), or direct inspection during testing and advanced
+application integrations.
 
 =head1 HEADERS
 

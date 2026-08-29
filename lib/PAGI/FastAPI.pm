@@ -4,10 +4,11 @@ use v5.38;
 use experimental qw/class try for_list/;
 use version;
 
-our $VERSION   = qv('v1.6.0');
+our $VERSION   = qv('v1.7.0');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
+use Future;
 use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(blessed);
 use PAGI::App::URLMap;
@@ -20,7 +21,7 @@ use PAGI::FastAPI::Middleware::RateLimit;
 
 class PAGI::FastAPI {
     field $title          :param = 'PAGI::FastAPI Application';
-    field $version        :param = $VERSION;
+    field $version        :param = "$VERSION";
     field $secret         :param = undef;
     field $routes                  = [];
     field $middlewares             = [];
@@ -29,6 +30,10 @@ class PAGI::FastAPI {
     field $cors_options            = undef;
     field $event_handlers          = undef;
     field $openapi                 = undef;
+    field $background_futures      = [];
+    field $swagger_ui_css_url    :param = 'https://unpkg.com/swagger-ui-dist@5/swagger-ui.css';
+    field $swagger_ui_bundle_url :param = 'https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js';
+    field $swagger_ui_parameters :param = { operationsSorter => 'method', tagsSorter => 'alpha', };
 
     ADJUST {
         $event_handlers = {
@@ -221,6 +226,10 @@ class PAGI::FastAPI {
                     }
                     elsif ($event->{type} eq 'lifespan.shutdown') {
                         try {
+                            if (@$background_futures) {
+                                my @pending = @$background_futures;
+                                await Future->wait_all(@pending);
+                            }
                             for my $cb (@{$event_handlers->{shutdown}}) {
                                 await $cb->();
                             }
@@ -261,6 +270,9 @@ class PAGI::FastAPI {
             }
 
             my $body_data;
+            my $form_data;
+            my $uploaded_files = {};
+
             if ($method eq 'POST' || $method eq 'PUT' || $method eq 'PATCH') {
                 my $raw_body = '';
                 while (1) {
@@ -278,12 +290,13 @@ class PAGI::FastAPI {
                     my $content_type = '';
                     for my $h (@{ $scope->{headers} // [] }) {
                         if (lc($h->[0]) eq 'content-type') {
-                            $content_type = lc($h->[1] // '');
+                            $content_type = $h->[1] // '';
                             last;
                         }
                     }
+                    my $content_type_lc = lc($content_type);
 
-                    if (index($content_type, 'application/x-www-form-urlencoded') == 0) {
+                    if (index($content_type_lc, 'application/x-www-form-urlencoded') == 0) {
                         my %form;
                         for my $pair (split '&', $raw_body) {
                             my ($k, $v) = split '=', $pair, 2;
@@ -291,6 +304,15 @@ class PAGI::FastAPI {
                             $form{_uri_unescape($k)} = _uri_unescape($v // '');
                         }
                         $body_data = \%form;
+                        $form_data = \%form;
+                    }
+                    elsif (index($content_type_lc, 'multipart/form-data') == 0) {
+                        my ($b1, $b2) = $content_type =~ /boundary=(?:"([^"]+)"|([^;\s]+))/i;
+                        my $boundary  = $b1 // $b2 // '';
+                        my ($fields, $files) = _parse_multipart_form_data($raw_body, $boundary);
+                        $body_data           = $fields;
+                        $form_data           = $fields;
+                        $uploaded_files      = $files;
                     }
                     else {
                         try {
@@ -307,10 +329,13 @@ class PAGI::FastAPI {
 
             my $pagi_context = PAGI::Context->new($scope, $receive, $send);
             my $ctx = PAGI::FastAPI::Context->new(
-                query_params => \%query_params,
-                body         => $body_data,
-                scope        => $scope,
-                pagi_context => $pagi_context,
+                query_params         => \%query_params,
+                body                 => $body_data,
+                form_data            => $form_data,
+                uploaded_files       => $uploaded_files,
+                scope                => $scope,
+                pagi_context         => $pagi_context,
+                background_registrar => sub ($future) { $self->_retain_background($future) },
             );
 
             my $dispatcher = async sub ($c) {
@@ -467,6 +492,107 @@ class PAGI::FastAPI {
         return $str;
     }
 
+    # Parses a 'multipart/form-data' request body per RFC 7578. Returns two
+    # HashRefs: (\%form_data, \%uploaded_files).
+    #
+    # %form_data mirrors the shape of application/x-www-form-urlencoded
+    # parsing, one scalar string value per field name (last value wins on
+    # a repeated name, matching the existing urlencoded behavior above).
+    #
+    # %uploaded_files is keyed by field name; each value is always an
+    # ArrayRef of { filename, content_type, content, size } HashRefs,
+    # even for a single file, so a field using <input type="file" multiple>
+    # and one using a plain single-file input have the same shape to consume.
+    sub _parse_multipart_form_data ($raw_body, $boundary) {
+        my %form_data;
+        my %uploaded_files;
+
+        return (\%form_data, \%uploaded_files)
+            unless defined $raw_body && length $raw_body
+                && defined $boundary && length $boundary;
+
+        my @chunks = split /\Q--$boundary\E/, $raw_body;
+        shift @chunks;                                    # preamble before the first boundary
+        pop @chunks if @chunks && $chunks[-1] =~ /^--/;   # trailing "--" epilogue after the closing boundary
+
+        for my $chunk (@chunks) {
+            $chunk =~ s/\A\r?\n//;   # CRLF right after the boundary marker
+            $chunk =~ s/\r?\n\z//;   # CRLF right before the next boundary marker
+
+            my ($header_block, $part_body) = split /\r?\n\r?\n/, $chunk, 2;
+            next unless defined $part_body;
+
+            my %headers;
+            for my $line (split /\r?\n/, $header_block) {
+                $headers{lc $1} = $2 if $line =~ /^([^:]+):\s*(.*)\z/;
+            }
+
+            my $disposition = $headers{'content-disposition'} // '';
+            my ($name) = $disposition =~ /\bname="([^"]*)"/;
+            next unless defined $name && length $name;
+
+            # RFC 5987 filename* (UTF-8''encoded-name) takes priority over
+            # plain filename="..." when both are present.
+            my ($filename_star) = $disposition =~ /\bfilename\*\s*=\s*UTF-8''([^;]+)/i;
+            my ($filename)      = $disposition =~ /\bfilename="([^"]*)"/;
+            $filename           = _uri_unescape($filename_star) if defined $filename_star;
+
+            if (defined $filename && length $filename) {
+                push @{ $uploaded_files{$name} //= [] }, {
+                    filename     => $filename,
+                    content_type => $headers{'content-type'} // 'application/octet-stream',
+                    content      => $part_body,
+                    size         => length $part_body,
+                };
+            }
+            else {
+                $form_data{$name} = $part_body;
+            }
+        }
+
+        return (\%form_data, \%uploaded_files);
+    }
+
+    # Derives a stable, unique-by-construction OpenAPI operationId from a
+    # route's method and path, e.g. GET /widgets/{id} -> "get_widgets_id".
+    # Unique because method+path is already unique per registered route
+    # (two routes can't share both). Callers can override this default via
+    # the 'operation_id' route option, e.g. when a path changes but external
+    # tooling (codegen, OpenAPI `links`, ...) depends on the ID being
+    # stable.
+    sub _operation_id_for ($method, $path) {
+        my $slug = lc($path);
+        $slug =~ s/[{}]//g;
+        $slug =~ s{/}{_}g;
+        $slug =~ s/[^a-z0-9_]/_/g;
+        $slug =~ s/^_+|_+$//g;
+        $slug = 'root' unless length $slug;
+        return lc($method) . '_' . $slug;
+    }
+
+    # Retains a fire-and-forget Future so it isn't garbage-collected or
+    # cancelled before it completes, and removes it from the retention
+    # list once it settles. Owned at the application-instance level (not
+    # per-request), since the whole point is the task keeps running after
+    # its originating request/response has already finished.
+    method _retain_background ($future) {
+        push @$background_futures, $future;
+
+        $future->on_ready(sub {
+            @$background_futures = grep { $_ != $future } @$background_futures;
+        });
+
+        # A background task is deliberately fire-and-forget: nobody else
+        # ever calls ->get/->failure on it. Without an on_fail handler,
+        # Future.pm would emit its "lost future" leak warning if the task
+        # dies. Log it instead of letting it surface as a leak.
+        $future->on_fail(sub ($err) {
+            warn "[PAGI::FastAPI] background task failed: $err";
+        });
+
+        return $future;
+    }
+
     async method _handle_websocket ($scope, $receive, $send) {
         my $raw_path = $scope->{path} // '/';
         my ($route, $path_params) = $self->_match_route('WEBSOCKET', $raw_path);
@@ -524,7 +650,7 @@ class PAGI::FastAPI {
     }
 
     method _register_route ($method, $path, $opts) {
-        my $query_types = $opts->{query}   // {};
+        my $query_types = $opts->{query}        // {};
         my $body_spec   = $opts->{body};
         my $raw_deps    = $opts->{dependencies} // [];
         my $handler     = $opts->{handler};
@@ -532,6 +658,15 @@ class PAGI::FastAPI {
 
         die "Route '$method $path' requires a 'handler' async coderef"
             unless ref $handler eq 'CODE';
+
+        die "Route '$method $path' 'tags' must be an ArrayRef"
+            if exists $opts->{tags} && ref $opts->{tags} ne 'ARRAY';
+
+        die "Route '$method $path' 'responses' must be a HashRef"
+            if exists $opts->{responses} && ref $opts->{responses} ne 'HASH';
+
+        die "Route '$method $path' 'operation_id' must be a non-empty string"
+            if exists $opts->{operation_id} && !length($opts->{operation_id} // '');
 
         if ($rl_opts) {
             my $limiter = PAGI::FastAPI::Middleware::RateLimit->new(
@@ -601,13 +736,19 @@ class PAGI::FastAPI {
             }
 
             my $route_doc = {
-                summary    => "$method $path",
-                parameters => \@parameters,
-                responses  => {
+                operationId => $opts->{operation_id} // _operation_id_for($method, $path),
+                summary     => $opts->{summary}      // "$method $path",
+                parameters  => \@parameters,
+                responses   => {
                     200 => { description => "Successful Response" },
                     422 => { description => "Validation Error" },
-                }
+                    %{ $opts->{responses} // {} },
+                },
             };
+
+            $route_doc->{tags}        = $opts->{tags}                 if exists $opts->{tags};
+            $route_doc->{description} = $opts->{description}          if exists $opts->{description};
+            $route_doc->{deprecated}  = $opts->{deprecated} ? \1 : \0 if exists $opts->{deprecated};
 
             if ($body_spec) {
                 my $properties = {};
@@ -646,18 +787,29 @@ class PAGI::FastAPI {
     }
 
     method _swagger_ui_html {
+        my $json = encode_json($swagger_ui_parameters);
+
+        # Strip opening '{' and closing '}' to inject properties directly
+        $json =~ s/^\s*\{|\}\s*$//g;
+
+        # Add a comma prefix if options are present
+        my $extra_opts = length($json) ? ",\n            $json" : "";
+
         return <<"HTML";
 <!DOCTYPE html>
 <html>
 <head>
     <title>$title - Swagger UI</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist\@5/swagger-ui.css" />
+    <link rel="stylesheet" href="$swagger_ui_css_url" />
 </head>
 <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist\@5/swagger-ui-bundle.js"></script>
+    <script src="$swagger_ui_bundle_url"></script>
     <script>
-        SwaggerUIBundle({ url: '/openapi.json', dom_id: '#swagger-ui' });
+        SwaggerUIBundle({
+            url: '/openapi.json',
+            dom_id: '#swagger-ui'$extra_opts
+        });
     </script>
 </body>
 </html>
@@ -673,7 +825,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v1.6.0
+Version v1.7.0
 
 =head1 SYNOPSIS
 
@@ -867,6 +1019,12 @@ drivers, see L<PAGI::FastAPI::Middleware::RateLimit>.
 cryptographic proof-of-work challenge/response flow on unauthenticated
 requests, see L<PAGI::FastAPI::Middleware::BotProtection>.
 
+=item * B<File Uploads:> C<multipart/form-data> request bodies are parsed
+automatically, see L</FILE UPLOADS>.
+
+=item * B<Background Tasks:> C<< $c->background(async sub {...}) >> for
+fire-and-forget work that outlives the request, see L</BACKGROUND TASKS>.
+
 =item * B<Server-Sent Events:> C<< $c->sse >> streams production-grade SSE
 responses with keepalives and auto-JSON serialisation, see
 L<PAGI::FastAPI::Response::SSE>.
@@ -947,15 +1105,82 @@ L<Type::Tiny> type constraints.
 
 =item * C<body> - (Optional) HashRef mapping request body keys to
 L<Type::Tiny> type constraints. The request body is parsed as JSON by
-default; if the C<Content-Type> header is C<application/x-www-form-urlencoded>,
-it is parsed as form-urlencoded data instead. Either way, the same type
-constraints and validation apply.
+default; if the C<Content-Type> header is C<application/x-www-form-urlencoded>
+or C<multipart/form-data>, it is parsed as form fields instead (see
+L</FILE UPLOADS> for the C<multipart/form-data> case specifically). Either
+way, the same type constraints and validation apply to the parsed field
+values.
 
 =item * C<dependencies> - (Optional) HashRef or ArrayRef of dependency code
 blocks or L<PAGI::FastAPI::Depends> specs.
 
 =item * C<handler> - (Required) An C<async sub ($c)> code reference executing
 business logic. Receives a L<PAGI::FastAPI::Context> instance.
+
+=item * C<tags> - (Optional) ArrayRef of strings, included verbatim in this
+route's generated OpenAPI document (C<< $openapi->{paths}{$path}{$method}{tags} >>).
+Swagger UI (served at C</docs>) groups routes by tag.
+
+=item * C<operation_id> - (Optional) String, used as this route's OpenAPI
+C<operationId> instead of the auto-generated default (see below). Useful
+when you want a stable ID that survives the route's path changing, since
+external tooling (client codegen, OpenAPI C<responses/*/links>, etc.) that
+references an C<operationId> breaks if that ID changes later.
+
+Every route gets an C<operationId> in its generated OpenAPI document,
+whether or not this option is given, when omitted, one is derived
+deterministically from the method and path (e.g. C<GET /widgets/{id}>
+becomes C<get_widgets_id>), which is guaranteed unique since no two
+routes share the same method and path.
+
+=item * C<summary> - (Optional) String, used as this route's OpenAPI
+C<summary>. Defaults to C<"$method $path"> (e.g. C<"GET /widgets/{id}">)
+when omitted, exactly as in earlier versions.
+
+=item * C<description> - (Optional) String, included as this route's
+OpenAPI C<description> when supplied. Omitted from the generated document
+entirely (not even an empty string) when not given.
+
+=item * C<deprecated> - (Optional) Boolean. When true, marks this route
+C<deprecated> in the generated OpenAPI document, which Swagger UI renders
+with a strikethrough. Omitted from the document when not given.
+
+=item * C<responses> - (Optional) HashRef mapping HTTP status codes to
+OpenAPI Response Object HashRefs, merged I<on top of> the default C<200>/
+C<422> entries every route already documents. Add an entry for a status
+code your handler can actually return (C<201>, C<404>, etc.), or supply
+your own C<200>/C<422> key to override the default wording for that
+route.
+
+Each response HashRef is passed through to the generated document
+untouched, so any valid OpenAPI Response Object key is accepted, not just
+C<description>, for example C<links>, to point Swagger UI/tooling at a
+I<different> operation worth calling next (referencing that operation's
+C<operationId>, per above):
+
+    $app->get('/activity-log', handler => async sub ($c) { ... });
+
+    $app->post('/widgets',
+        tags        => ['Widgets'],
+        summary     => 'Create a widget',
+        description => 'Creates a new widget and returns its ID.',
+        responses   => {
+            201 => {
+                description => 'Widget created',
+                links       => {
+                    CheckActivityLog => {
+                        operationId => 'get_activity_log',
+                        description => 'See recent activity for this widget',
+                    },
+                },
+            },
+            409 => { description => 'A widget with that name already exists' },
+        },
+        handler => async sub ($c) {
+            $c->status(201);
+            return { id => 42 };
+        },
+    );
 
 =back
 
@@ -1249,6 +1474,46 @@ C<PAGI::FastAPI> automatically registers the following system endpoints:
 
 =back
 
+=head1 FILE UPLOADS
+
+A request body with a C<Content-Type> of C<multipart/form-data> is parsed
+per RFC 7578 and made available through L<PAGI::FastAPI::Context>, the
+same way an C<application/x-www-form-urlencoded> body already is:
+
+=over 4
+
+=item * L<PAGI::FastAPI::Context/form_data> - the plain text fields.
+
+=item * L<PAGI::FastAPI::Context/uploaded_files>, L<PAGI::FastAPI::Context/uploaded_file> - the uploaded file parts.
+
+=back
+
+    $app->post('/profile/avatar', handler => async sub ($c) {
+        my $caption = $c->form_data('caption');
+        my $avatar  = $c->uploaded_file('avatar');
+
+        unless ($avatar) {
+            $c->status(422);
+            return { detail => "Missing 'avatar' file" };
+        }
+
+        open my $fh, '>:raw', "/var/uploads/$avatar->{filename}" or die $!;
+        print {$fh} $avatar->{content};
+        close $fh;
+
+        return { filename => $avatar->{filename}, size => $avatar->{size} };
+    });
+
+As with C<application/x-www-form-urlencoded>, C<$c-E<gt>body> and
+C<$c-E<gt>param> also see the plain text fields from a multipart body (not
+the file parts), C<form_data> exists as a clearer-named alias for that
+same data, specifically for form-sourced bodies.
+
+File contents are currently read fully into memory for the duration of
+the request; there is no streaming or on-disk spooling for large uploads,
+so plan request body size limits (at your reverse proxy or C<PAGI::Server>
+configuration, whichever applies) accordingly.
+
 =head1 ERROR HANDLING
 
 When a request fails parameter validation (either query string or JSON/form-urlencoded body),
@@ -1269,6 +1534,35 @@ module you're calling into, see
 L<PAGI::FastAPI::Middleware::ExceptionHandler>, which lets you register a
 handler per exception class via C<add_middleware>, with a configurable
 fallback for anything unregistered.
+
+=head1 BACKGROUND TASKS
+
+For fire-and-forget work that shouldn't make the caller wait, sending a
+notification email, writing an audit log entry, warming a cache, use
+L<PAGI::FastAPI::Context/background>:
+
+    $app->post('/signup', handler => async sub ($c) {
+        my $email = $c->body('email');
+
+        $c->background(async sub {
+            await send_welcome_email($email);
+        });
+
+        return { status => 'account created' };
+    });
+
+The response is sent as soon as the handler returns; the scheduled task
+keeps running afterward. Retention is owned by the application, not by
+C<$c> or the request: a background task won't be garbage-collected or
+dropped before it completes just because the request that scheduled it
+has finished, and any still-pending tasks are awaited during PAGI Lifespan
+C<shutdown> (before your own C<on_shutdown> callbacks run), so normal
+process shutdown doesn't kill one mid-flight. A task that dies is logged
+via C<warn> rather than crashing the request that scheduled it or any
+other in-flight request.
+
+See L<PAGI::FastAPI::Context/background> for full details, including how
+argument validation works and what a misuse error looks like.
 
 =head1 EVENT LOOPS: FUTURE::IO IS THE GOAL, IO::ASYNC IS AN IMPLEMENTATION DETAIL
 
@@ -1507,6 +1801,10 @@ the full documentation and an end-to-end JWT-verification example.
 =item * L<PAGI::FastAPI::Response::File> - File-download responses.
 
 =item * L<PAGI::FastAPI::Cookies> - Request cookie parsing.
+
+=item * L</FILE UPLOADS> - Parsing C<multipart/form-data> request bodies.
+
+=item * L</BACKGROUND TASKS> - Fire-and-forget work via C<< $c->background >>.
 
 =back
 

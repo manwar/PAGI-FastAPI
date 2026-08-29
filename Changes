@@ -1,35 +1,84 @@
 Revision history for PAGI::FastAPI
 
-1.6.0   2026-08-25
-        [SECURITY FIXES]
-        - Added 'trust_proxies' configuration parameter to
-          PAGI::FastAPI::Middleware::BotProtection, defaults to 0.
-        - Added pow() reader method to PAGI::FastAPI::Middleware::BotProtection
-          to expose the underlying PAGI::FastAPI::BotProtection::ProofOfWork
-          instance for inspection and testing.
-        - Fixed IP spoofing security vulnerability by ignoring untrusted
-          'X-Forwarded-For' headers unless 'trust_proxies' is explicitly
-          enabled.
-        - Properly extract the original client IP from comma-separated
-          'X-Forwarded-For' proxy chains when 'trust_proxies' is enabled.
+1.7.0  2026-08-29
+       [FEATURE]
+       - File uploads: a request body with Content-Type multipart/form-data
+         is now parsed (per RFC 7578) instead of unconditionally failing
+         JSON decode and hard-rejecting with 422 before any handler or
+         dependency ran. New PAGI::FastAPI::Context methods: form_data(),
+         uploaded_files(), uploaded_file().
+       - Background tasks: new $c->background(async sub {...}) on
+         PAGI::FastAPI::Context for fire-and-forget work that keeps
+         running after the response has been sent. Retention is owned by
+         the application (not the request), a failing task is logged
+         rather than crashing anything, and any still-pending tasks are
+         drained on PAGI Lifespan shutdown before on_shutdown callbacks
+         run.
+       - Per-route OpenAPI metadata: get/post/put/patch/delete now accept
+         tags, summary, description, deprecated, and a responses => {...}
+         map (merged over, not replacing, the existing default 200/422
+         entries), threaded into the generated OpenAPI document for that
+         route. summary still defaults to "$method $path" when omitted.
+       - PAGI::FastAPI::Context now includes a file() method for returning
+         file responses with configurable MIME types and attachment headers.
+       - Swagger UI rendering now accepts an injectable $swagger_ui_parameters
+         configuration hash during app instantiation.
+       - Added $swagger_ui_css_url and $swagger_ui_bundle_url constructor
+         attributes, allowing developers to override CDN links or serve
+         Swagger UI assets locally.
 
-        [TESTING]
-        - Added unit test: t/36-middleware_bot_protection_trust_proxies.t
+       [BUGFIX]
+       - PAGI::FastAPI->new's default 'version' (when not explicitly
+         passed) was the blessed version object itself rather than a
+         plain string, which crashed encode_json on /openapi.json for any
+         app that didn't pass an explicit version. Found via testing the
+         OpenAPI metadata feature above; unrelated to it otherwise.
+       - Resolved random visual shuffling of endpoints in the /docs UI by
+         explicitly defaulting operationsSorter to 'method' and tagsSorter
+         to 'alpha'.
 
-1.5.0   2026-08-25
-        [SECURITY FIXES]
-        - CWE-1188: Removed default fallback string 'change_me_in_production'
-          from $secret in PAGI::FastAPI::BotProtection::ProofOfWork and
-          PAGI::FastAPI::Middleware::BotProtection.
-        - Enforced mandatory check for defined $secret; throws an exception
-          when unconfigured.
+       [TESTING]
+       - Added the following unit tests to cover new features added:
+         - t/37-multipart_file_uploads.t
+         - t/38-background_tasks.t
+         - t/39-openapi_route_options.t
 
-        [POD]
-        - Updated BotProtection SYNOPSIS and POD documentation to reflect
-          required secret initialisation.
+       [EXAMPLES]
+       - Added the following applications to demo new features:
+         - eg/background_demo.pl
+         - eg/docs_demo.pl
+         - eg/file_uploads_demo.pl
 
-        [TESTING]
-        - Added unit test: t/35-security_cwe_1188_secret_default.t
+1.6.0  2026-08-25
+       [SECURITY FIXES]
+       - Added 'trust_proxies' configuration parameter to
+         PAGI::FastAPI::Middleware::BotProtection, defaults to 0.
+       - Added pow() reader method to PAGI::FastAPI::Middleware::BotProtection
+         to expose the underlying PAGI::FastAPI::BotProtection::ProofOfWork
+         instance for inspection and testing.
+       - Fixed IP spoofing security vulnerability by ignoring untrusted
+         'X-Forwarded-For' headers unless 'trust_proxies' is explicitly
+         enabled.
+       - Properly extract the original client IP from comma-separated
+         'X-Forwarded-For' proxy chains when 'trust_proxies' is enabled.
+
+       [TESTING]
+       - Added unit test: t/36-middleware_bot_protection_trust_proxies.t
+
+1.5.0  2026-08-25
+       [SECURITY FIXES]
+       - CWE-1188: Removed default fallback string 'change_me_in_production'
+         from $secret in PAGI::FastAPI::BotProtection::ProofOfWork and
+         PAGI::FastAPI::Middleware::BotProtection.
+       - Enforced mandatory check for defined $secret; throws an exception
+         when unconfigured.
+
+       [POD]
+       - Updated BotProtection SYNOPSIS and POD documentation to reflect
+         required secret initialisation.
+
+       [TESTING]
+       - Added unit test: t/35-security_cwe_1188_secret_default.t
 
 1.4.0  2026-08-24
        [SECURITY FIXES]

@@ -22,11 +22,11 @@ use PAGI::FastAPI::Queue;
 use Future::AsyncAwait;
 
 my $app = PAGI::FastAPI->new(
-    title       => 'PAGI Queue Task Processing Service',
-    version     => '1.0.0',
+    title   => 'PAGI Queue Task Processing Service',
+    version => '1.0.0',
 );
 
-my $queue = PAGI::FastAPI::Queue->new( driver => 'Memory' );
+my $queue = PAGI::FastAPI::Queue->new(driver => 'Memory');
 
 $app->post('/tasks',
     summary => 'Enqueue a background task',

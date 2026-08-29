@@ -13,10 +13,51 @@ my $app = PAGI::FastAPI->new(
 # In-memory store for active WebSocket client connections
 my %clients;
 
+my $html_content = do { local $/; <DATA> };
 $app->get('/',
     handler => async sub ($c) {
         $c->set_header('content-type', 'text/html; charset=utf-8');
-        return <<'HTML';
+        $c->html($html_content);
+    }
+);
+
+async sub broadcast_text ($message) {
+    for my $client_ws (values %clients) {
+        try {
+            await $client_ws->send_text($message);
+        }
+        catch ($err) {
+            # Ignore write errors for clients mid-disconnect
+        }
+    }
+}
+
+$app->websocket('/ws',
+    handler => async sub ($ws, $deps) {
+        await $ws->accept;
+
+        my $client_id = "$ws";
+        $clients{$client_id} = $ws;
+
+        await broadcast_text("System: A new user joined the chat.");
+
+        try {
+            while (my $msg = await $ws->receive_text) {
+                await broadcast_text("User: $msg");
+            }
+        }
+        catch ($err) {
+            # Catch client disconnects
+        }
+
+        delete $clients{$client_id};
+        await broadcast_text("System: A user left the chat.");
+    }
+);
+
+$app->to_app;
+
+__DATA__
 <!DOCTYPE html>
 <html>
 <head>
@@ -66,42 +107,3 @@ $app->get('/',
     </script>
 </body>
 </html>
-HTML
-    }
-);
-
-async sub broadcast_text ($message) {
-    for my $client_ws (values %clients) {
-        try {
-            await $client_ws->send_text($message);
-        }
-        catch ($err) {
-            # Ignore write errors for clients mid-disconnect
-        }
-    }
-}
-
-$app->websocket('/ws',
-    handler => async sub ($ws, $deps) {
-        await $ws->accept;
-
-        my $client_id = "$ws";
-        $clients{$client_id} = $ws;
-
-        await broadcast_text("System: A new user joined the chat.");
-
-        try {
-            while (my $msg = await $ws->receive_text) {
-                await broadcast_text("User: $msg");
-            }
-        }
-        catch ($err) {
-            # Catch client disconnects
-        }
-
-        delete $clients{$client_id};
-        await broadcast_text("System: A user left the chat.");
-    }
-);
-
-$app->to_app;
