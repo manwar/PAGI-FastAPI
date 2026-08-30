@@ -4,7 +4,7 @@ use v5.38;
 use experimental qw/class try for_list/;
 use version;
 
-our $VERSION   = qv('v1.7.0');
+our $VERSION   = qv('v1.7.1');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -511,13 +511,15 @@ class PAGI::FastAPI {
             unless defined $raw_body && length $raw_body
                 && defined $boundary && length $boundary;
 
-        my @chunks = split /\Q--$boundary\E/, $raw_body;
-        shift @chunks;                                    # preamble before the first boundary
-        pop @chunks if @chunks && $chunks[-1] =~ /^--/;   # trailing "--" epilogue after the closing boundary
+        # Normalise newlines and trim final boundary trailing dashes
+        $raw_body =~ s/--\Q$boundary\E--\s*\z//;
+
+        my @chunks = split /--\Q$boundary\E\r?\n?/, $raw_body;
+        shift @chunks if @chunks && $chunks[0] !~ /Content-Disposition/i;
 
         for my $chunk (@chunks) {
-            $chunk =~ s/\A\r?\n//;   # CRLF right after the boundary marker
-            $chunk =~ s/\r?\n\z//;   # CRLF right before the next boundary marker
+            next unless length $chunk;
+            $chunk =~ s/\r?\n\z//;
 
             my ($header_block, $part_body) = split /\r?\n\r?\n/, $chunk, 2;
             next unless defined $part_body;
@@ -531,14 +533,12 @@ class PAGI::FastAPI {
             my ($name) = $disposition =~ /\bname="([^"]*)"/;
             next unless defined $name && length $name;
 
-            # RFC 5987 filename* (UTF-8''encoded-name) takes priority over
-            # plain filename="..." when both are present.
             my ($filename_star) = $disposition =~ /\bfilename\*\s*=\s*UTF-8''([^;]+)/i;
             my ($filename)      = $disposition =~ /\bfilename="([^"]*)"/;
             $filename           = _uri_unescape($filename_star) if defined $filename_star;
 
             if (defined $filename && length $filename) {
-                push @{ $uploaded_files{$name} //= [] }, {
+                push @{ $uploaded_files{$name} }, {
                     filename     => $filename,
                     content_type => $headers{'content-type'} // 'application/octet-stream',
                     content      => $part_body,
@@ -825,7 +825,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v1.7.0
+Version v1.7.1
 
 =head1 SYNOPSIS
 

@@ -1,5 +1,11 @@
 Revision history for PAGI::FastAPI
 
+1.7.1  2026-08-30
+       [BUGFIX]
+       - Multipart Upload Parsing: Fixed an issue in _parse_multipart_form_data
+         where multiple file uploads under the same form field name failed
+         to parse cleanly into uploaded_files.
+
 1.7.0  2026-08-29
        [FEATURE]
        - File uploads: a request body with Content-Type multipart/form-data

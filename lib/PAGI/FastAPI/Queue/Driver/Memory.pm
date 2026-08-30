@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.7.0');
+our $VERSION   = qv('v1.7.1');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -52,7 +52,7 @@ PAGI::FastAPI::Queue::Driver::Memory - Default In-Memory Storage Driver for PAGI
 
 =head1 VERSION
 
-Version v1.7.0
+Version v1.7.1
 
 =head1 SYNOPSIS
 
