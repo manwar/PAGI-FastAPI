@@ -108,7 +108,7 @@ __DATA__
 </head>
 <body>
     <h2>Background Tasks</h2>
-    <p class="sub">POST /signup returns immediately; the welcome-email task keeps running via <code>$c-&gt;background()</code> and shows up below a couple of seconds later.</p>
+    <p class="sub">POST /signup returns immediately; the welcome-email task keeps running via <strong><code>$c&#8209;&gt;background()</code></strong> and shows up below a couple of seconds later.</p>
 
     <div class="card">
         <div class="row">
