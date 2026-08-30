@@ -195,7 +195,10 @@ $app->post('/widgets',
         # accuracy, same as everything else in this file getting a links
         # entry instead of "No links".
         200 => {
-            description => 'Not actually returned by this operation (success is 201); documented here only because every route keeps a default 200 entry unless overridden',
+            description => 'Not actually returned by this operation '.
+                           '(success is 201); documented here only because '.
+                           'every route keeps a default 200 entry unless '.
+                           'overridden',
             links       => {
                 ListWidgets => {
                     operationId => OP_LIST_WIDGETS,
