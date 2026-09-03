@@ -3,7 +3,7 @@ package PAGI::FastAPI::Cookies;
 use v5.38;
 use version;
 
-our $VERSION   = qv('v1.7.1');
+our $VERSION   = qv('v1.7.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Exporter 'import';
@@ -62,7 +62,7 @@ PAGI::FastAPI::Cookies - Request Cookie Parsing Helper for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v1.7.1
+Version v1.7.2
 
 =head1 SYNOPSIS
 

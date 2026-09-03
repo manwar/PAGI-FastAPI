@@ -4,7 +4,7 @@ use v5.38;
 use experimental qw/class try for_list/;
 use version;
 
-our $VERSION   = qv('v1.7.1');
+our $VERSION   = qv('v1.7.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -404,7 +404,25 @@ class PAGI::FastAPI {
                             }
                         }
 
-                        return await $route->{handler}->($c);
+                        # Handlers are documented as 'async sub ($c)', which
+                        # always returns a Future when called, so awaiting
+                        # unconditionally is correct for the common case.
+                        # However, several first-class Response objects
+                        # (e.g. PAGI::FastAPI::Response::SSE, per its own
+                        # SYNOPSIS) are documented as being returned from a
+                        # *plain*, non-async 'sub ($c) {...}' handler.
+                        # A plain sub's return value is not a Future, and
+                        # 'await'ing a non-Future object requires it to
+                        # implement the Future::AsyncAwait awaitable
+                        # protocol, which Response objects don't, so
+                        # awaiting unconditionally crashes those documented
+                        # examples with "Can't locate object method
+                        # AWAIT_IS_READY". Only await when the handler
+                        # actually returned a Future.
+                        my $handler_result = $route->{handler}->($c);
+                        return (blessed($handler_result) && $handler_result->isa('Future'))
+                            ? await $handler_result
+                            : $handler_result;
                     }
                 }
 
@@ -825,7 +843,7 @@ PAGI::FastAPI - Asynchronous, Type-Safe Micro-Framework with Dependency Injectio
 
 =head1 VERSION
 
-Version v1.7.1
+Version v1.7.2
 
 =head1 SYNOPSIS
 

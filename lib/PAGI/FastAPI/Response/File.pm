@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.7.1');
+our $VERSION   = qv('v1.7.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use PAGI::FastAPI::Response;
@@ -90,7 +90,7 @@ PAGI::FastAPI::Response::File - File Download Response for PAGI::FastAPI
 
 =head1 VERSION
 
-Version v1.7.1
+Version v1.7.2
 
 =head1 SYNOPSIS
 

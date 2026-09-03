@@ -4,10 +4,11 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.7.1');
+our $VERSION   = qv('v1.7.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
+use Scalar::Util qw(blessed);
 use PAGI::SSE;
 
 class PAGI::FastAPI::Response::SSE {
@@ -27,7 +28,22 @@ class PAGI::FastAPI::Response::SSE {
         );
 
         eval {
-            await $generator->($sse);
+            # generator must be an 'async sub ($sse)', per the constructor's
+            # documented contract, calling one always returns a Future.
+            # If it doesn't (a plain 'sub' was passed by mistake), awaiting
+            # it directly produces a confusing "Can't locate object method
+            # AWAIT_IS_READY" error that doesn't point at the real problem.
+            # Fail with a clear diagnostic instead: a non-async generator
+            # can't actually stream anything (its send_event/send_json
+            # calls would return unawaited Futures and silently never
+            # fire), so this must be a hard error, not a silent no-op.
+            my $gen_result = $generator->($sse);
+            unless (blessed($gen_result) && $gen_result->isa('Future')) {
+                die "SSE generator must be an 'async sub (\$sse)', did you "
+                  . "forget 'async'? A synchronous generator can't actually "
+                  . "send any events.\n";
+            }
+            await $gen_result;
         };
         if (my $err = $@) {
             await $sse->_trigger_error($err);
@@ -45,7 +61,7 @@ PAGI::FastAPI::Response::SSE - Server-Sent Events (SSE) Streaming Response for P
 
 =head1 VERSION
 
-Version v1.7.1
+Version v1.7.2
 
 =head1 SYNOPSIS
 

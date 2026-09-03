@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.7.1');
+our $VERSION   = qv('v1.7.2');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use PAGI::FastAPI::RateLimit::Driver;
@@ -87,7 +87,7 @@ PAGI::FastAPI::RateLimit::Driver::Memory - Default In-Memory Storage Driver for 
 
 =head1 VERSION
 
-Version v1.7.1
+Version v1.7.2
 
 =head1 SYNOPSIS
 

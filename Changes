@@ -1,5 +1,39 @@
 Revision history for PAGI::FastAPI
 
+1.7.2  2026-09-03
+       [BUGFIX]
+       - Route dispatch unconditionally awaited a handler's return value
+         ('return await $route->{handler}->($c)'), which crashed with
+         "Can't locate object method AWAIT_IS_READY via package
+         PAGI::FastAPI::Response::SSE" for any handler registered as a
+         plain, non-async sub, the exact pattern shown in every SSE
+         example in PAGI::FastAPI::Response::SSE's own SYNOPSIS. The
+         dispatcher now only awaits the handler's return value when it's
+         actually a Future (i.e. the handler was truly async); a
+         synchronous return (a Response object, a plain hashref, etc.)
+         is now passed through as-is, matching the documented contract
+         for both async and plain-sub SSE handlers. Found via a user's
+         report while wiring up a streaming endpoint using the SSE docs
+         as written.
+
+       - PAGI::FastAPI::Response::SSE's generator callback now fails
+         fast with a clear diagnostic ("SSE generator must be an
+         'async sub ($sse)', did you forget 'async'?") if it isn't actually
+         async, instead of the same confusing AWAIT_IS_READY error.
+         Unlike the handler case above, a non-async generator can't be
+         allowed to run silently: its send_event/send_json calls would
+         return unawaited Futures and never actually transmit, so the
+         connection would sit open delivering nothing with no error at
+         all. This keeps the strict failure (correct, since the
+         generator contract is unambiguous everywhere in the docs) but
+         makes the cause immediately obvious instead of requiring a
+         framework source dive to diagnose.
+
+       [DOCS]
+       - No POD changes needed for the above: PAGI::FastAPI::Response::SSE's
+         SYNOPSIS already showed the correct (plain sub) handler usage,
+         it was the dispatcher that didn't support it yet.
+
 1.7.1  2026-08-30
        [BUGFIX]
        - Multipart Upload Parsing: Fixed an issue in _parse_multipart_form_data
