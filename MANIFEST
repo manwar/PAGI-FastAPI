@@ -44,6 +44,7 @@ Makefile.PL
 MANIFEST
 MANIFEST.SKIP
 README.md
+SECURITY.md
 t/00-load.t
 t/01-async_routing.t
 t/02-context.t

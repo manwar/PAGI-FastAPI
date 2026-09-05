@@ -4,7 +4,7 @@ use v5.38;
 use experimental 'class';
 use version;
 
-our $VERSION   = qv('v1.7.2');
+our $VERSION   = qv('v1.7.3');
 our $AUTHORITY = 'cpan:MANWAR';
 
 use Future::AsyncAwait;
@@ -86,7 +86,7 @@ PAGI::FastAPI::Middleware::ExceptionHandler - Typed Exception-to-Handler Dispatc
 
 =head1 VERSION
 
-Version v1.7.2
+Version v1.7.3
 
 =head1 SYNOPSIS
 

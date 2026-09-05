@@ -1,5 +1,9 @@
 Revision history for PAGI::FastAPI
 
+1.7.3  2026-09-05
+       [IMPROVEMENTS]
+       - Added security document SECURITY.md.
+
 1.7.2  2026-09-03
        [BUGFIX]
        - Route dispatch unconditionally awaited a handler's return value
