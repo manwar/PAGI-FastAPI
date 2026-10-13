@@ -7,6 +7,7 @@ use experimental 'class';
 use PAGI::FastAPI::Response::SSE;
 use Future;
 use Future::AsyncAwait;
+use PAGI::Test::ConnectionState;
 
 class MockPagiSSEChannel {
     field $events_sent = [];
@@ -29,9 +30,15 @@ class MockPagiSSEChannel {
 subtest 'PAGI::SSE Dispatcher - Connection Initialization' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/stream' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         status    => 200,
@@ -66,9 +73,15 @@ subtest 'PAGI::SSE Dispatcher - Connection Initialization' => sub {
 subtest 'PAGI::SSE Features - JSON, Custom Events, and Keepalives' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/live' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/live', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         generator => async sub ($sse) {
@@ -104,16 +117,23 @@ subtest 'PAGI::SSE Features - JSON, Custom Events, and Keepalives' => sub {
 subtest 'PAGI::SSE Cleanup & Error Handling' => sub {
     my $mock_channel = MockPagiSSEChannel->new;
 
-    my $scope   = { type => 'sse', path => '/stream' };
+    # PAGI Www 0.6: the scope carries pagi.connection; sse.close completes it.
+    my $conn    = PAGI::Test::ConnectionState->new;
+    my $scope   = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
     my $receive = sub { $mock_channel->receive };
-    my $send    = sub ($evt) { $mock_channel->send($evt) };
+    my $send    = sub ($evt) {
+        my $sent = $mock_channel->send($evt);
+        $conn->_mark_complete if $evt->{type} eq 'sse.close';
+        return $sent;
+    };
 
     my $cleanup_ran = 0;
 
     my $response = PAGI::FastAPI::Response::SSE->new(
         generator => async sub ($sse) {
             # Register close callback
-            $sse->on_close(sub ($s, $reason) {
+            # PAGI-Tools 0.003000 passes ($sse, $reason, $detail).
+            $sse->on_close(sub ($s, $reason, $detail = undef) {
                 $cleanup_ran = 1;
             });
 
@@ -125,6 +145,49 @@ subtest 'PAGI::SSE Cleanup & Error Handling' => sub {
     $response->dispatch($scope, $receive, $send)->get;
 
     ok($cleanup_ran, 'on_close lifecycle hook executed upon completion');
+};
+
+# A generator's failure while the client is still there is an application
+# error: it must reach the server, which ends the stream and logs it. A
+# client that left mid-stream is not one.
+sub dispatch_with ($generator, %opt) {
+    my $conn  = PAGI::Test::ConnectionState->new;
+    my $scope = { type => 'sse', path => '/stream', 'pagi.connection' => $conn };
+    my $client_leaves = Future->new;
+    my $receive = sub { $client_leaves->then(sub { Future->done({ type => 'sse.disconnect' }) }) };
+    my @sent;
+    my $send = sub ($evt) { push @sent, $evt->{type}; Future->done };
+    my $f = PAGI::FastAPI::Response::SSE->new(generator => $generator)
+        ->dispatch($scope, $receive, $send);
+    return ($f, \@sent, $conn);
+}
+
+subtest 'A generator that dies while the client is connected surfaces its error' => sub {
+    my ($f, $sent) = dispatch_with(async sub ($sse) {
+        await $sse->send_event(data => 'one');
+        die "generator bug\n";
+    });
+    ok($f->is_ready, 'dispatch does not leave the stream open');
+    is(($f->failure)[0], "generator bug\n", 'it fails with the generator\'s error');
+    is_deeply($sent, ['sse.start', 'sse.send'], 'the event before the error went out');
+};
+
+subtest 'A plain (non-async) generator gets the diagnostic' => sub {
+    my ($f) = dispatch_with(sub ($sse) { return 1 });
+    ok($f->is_ready, 'dispatch does not leave the stream open');
+    like(($f->failure)[0] // '', qr/SSE generator must be an 'async sub \(\$sse\)'/,
+        'the "did you forget async" message reaches the caller');
+};
+
+subtest 'A client that leaves mid-stream ends it quietly' => sub {
+    my ($f, $sent, $conn);
+    ($f, $sent, $conn) = dispatch_with(async sub ($sse) {
+        await $sse->send_event(data => 'one');
+        $sse->scope->{'pagi.connection'}->_mark_disconnected('client_closed');
+        await $sse->send_event(data => 'two');    # the client has gone
+    });
+    ok($f->is_ready, 'dispatch finishes');
+    ok(!$f->is_failed, 'without an error') or diag(($f->failure)[0]);
 };
 
 done_testing;

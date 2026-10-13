@@ -66,8 +66,14 @@ class PAGI::FastAPI::Context {
     }
 
     method csrf_verify ($token) {
-        die "PAGI context is not set" unless defined $pagi_context;
-        return $pagi_context->csrf_verify($token);
+        return $pagi_context->csrf_verify($token) if defined $pagi_context;
+
+        # The token PAGI::Middleware::CSRF put in the scope, compared in
+        # constant time; false when there is none.
+        my $expected = ref $scope eq 'HASH' ? $scope->{'pagi.csrf_token'} : undef;
+        return 0 unless defined $expected && !ref $expected && length $expected;
+        require PAGI::CSRF;
+        return PAGI::CSRF->new($scope)->verify($token);
     }
 
     method res_headers { $res_headers }
@@ -286,9 +292,9 @@ Gets or sets the HTTP status code for the response.
 
     my $pagi_ctx = $c->pagi_context;
 
-Returns the underlying low-level L<PAGI::Context> instance associated with
-the current HTTP request. Useful for low-level protocol inspection, raw
-environment access, or invoking protocol-specific extension methods.
+Returns the object passed as C<pagi_context> to the constructor, if any.
+C<csrf_verify> delegates to it when present. PAGI::FastAPI itself no longer
+passes one: L<PAGI::Context> was removed from PAGI-Tools in 0.003000.
 
 =head2 C<csrf_token>
 
@@ -329,13 +335,12 @@ B<Example Usage (Embedding in HTML forms):>
     my $is_valid = $c->csrf_verify($submitted_token);
 
 Explicitly validates the given C<$token> against the current request's CSRF
-state by delegating to the underlying low-level L<PAGI::Context> instance.
+state: the C<pagi.csrf_token> that L<PAGI::Middleware::CSRF> puts in the scope,
+compared in constant time (L<PAGI::CSRF>). If a C<pagi_context> object was
+passed to the constructor, its C<csrf_verify> is used instead.
 
-Accepts a scalar token string C<$token>. Returns a true value if the token
-signature and expiration are valid; returns false otherwise.
-
-Dies with C<"PAGI context is not set"> if invoked when no low-level
-L<PAGI::Context> instance is associated with C<$c>.
+Accepts a scalar token string C<$token>. Returns true if it matches; returns
+false otherwise, including when the request carries no CSRF token.
 
 B<Example Usage (Manual Verification):>
 

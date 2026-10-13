@@ -45,13 +45,13 @@ subtest 'csrf_token() resolution order: scope -> pagi_context env -> session' =>
     is $ctx_none->csrf_token, undef, 'returns undef when no source has a token';
 };
 
-subtest 'csrf_verify() delegates to pagi_context, and requires one' => sub {
+subtest 'csrf_verify() checks the scope token, or delegates to pagi_context' => sub {
     my $ctx_none = PAGI::FastAPI::Context->new();
-    like(
-        exception { $ctx_none->csrf_verify('any-token') },
-        qr/PAGI context is not set/,
-        'dies with a clear message when pagi_context is unset',
-    );
+    ok !$ctx_none->csrf_verify('any-token'), 'false when the request has no CSRF token';
+
+    my $ctx_scope = PAGI::FastAPI::Context->new(scope => { 'pagi.csrf_token' => 'the-token' });
+    ok $ctx_scope->csrf_verify('the-token'), 'true for the token PAGI::Middleware::CSRF put in the scope';
+    ok !$ctx_scope->csrf_verify('other-token'), 'false for any other token';
 
     my $fake_pagi_context = bless {}, 'PAGI::FastAPI::Test::FakeContext';
     my $ctx = PAGI::FastAPI::Context->new(pagi_context => $fake_pagi_context);

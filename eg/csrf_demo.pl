@@ -7,14 +7,13 @@ use PAGI::FastAPI;
 use Future::AsyncAwait;
 
 my $app    = PAGI::FastAPI->new;
-my $SECRET = 'test-csrf-secret-12345';
 
-$app->add_middleware('PAGI::Middleware::Session', secret => $SECRET);
-$app->enable_csrf(secret => $SECRET);
+$app->add_middleware('PAGI::Middleware::Session');
+$app->enable_csrf;
 
 $app->get('/', handler => async sub ($c) {
-    # enable_csrf() below defaults to enforce => 'header', so the token
-    # must travel as an X-CSRF-Token request header, not a form field.
+    # enable_csrf() checks the X-CSRF-Token request header by default, so
+    # the token must travel as that header, not a form field.
     # A plain <form method="POST"> submission cannot add a custom header,
     # so this demo submits via fetch() instead, reading the CSRF cookie
     # PAGI::Middleware::CSRF sets (readable by JS, i.e. not HttpOnly, by

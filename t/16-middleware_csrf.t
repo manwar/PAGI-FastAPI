@@ -8,10 +8,9 @@ use PAGI::FastAPI;
 use PAGI::Test::Client;
 
 my $app    = PAGI::FastAPI->new();
-my $SECRET = 'test-csrf-secret-12345';
 
-$app->add_middleware('PAGI::Middleware::Session', secret => $SECRET);
-$app->enable_csrf(secret => $SECRET);
+$app->add_middleware('PAGI::Middleware::Session');
+$app->enable_csrf();
 
 $app->get('/form', handler => async sub ($c) {
     my $token = $c->csrf_token() // '';
@@ -50,6 +49,16 @@ subtest 'POST /submit with valid CSRF Cookie and Header succeeds' => sub {
 
     is($post_res->status, 200, 'Succeeds with 200 OK');
     is($post_res->json->{status}, 'ok', 'Response body matches JSON');
+};
+
+subtest 'POST /submit with a wrong token gets FastAPI-style JSON' => sub {
+    my $c = PAGI::Test::Client->new(app => $app->to_pagi);
+    $c->get('/form');
+    my $res = $c->post('/submit', headers => { 'x-csrf-token' => 'wrong' });
+    is($res->status, 403, 'Fails with 403 Forbidden');
+    like($res->header('content-type'), qr{\Aapplication/json}, 'as JSON');
+    is_deeply($res->json, { detail => 'CSRF token validation failed' },
+        'with the detail shape FastAPI errors use');
 };
 
 done_testing;

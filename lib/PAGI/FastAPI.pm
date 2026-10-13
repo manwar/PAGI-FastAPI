@@ -12,7 +12,7 @@ use Future;
 use JSON::PP qw(encode_json decode_json);
 use Scalar::Util qw(blessed);
 use PAGI::App::URLMap;
-use PAGI::Context;
+use PAGI::Response qw(response);
 use PAGI::WebSocket;
 use PAGI::Middleware::CORS;
 use PAGI::FastAPI::Context;
@@ -97,13 +97,13 @@ class PAGI::FastAPI {
 
     method enable_csrf (%opts) {
         require PAGI::Middleware::CSRF;
-        my $csrf_secret = delete $opts{secret} // $secret
-            // die "CSRF middleware requires 'secret' option";
 
+        # A failed check answers in FastAPI's error shape, {"detail": ...},
+        # rather than the middleware's plain-text default.
         my $mw = PAGI::Middleware::CSRF->new(
-            secret  => $csrf_secret,
-            enforce => 'header',
             secure  => 0,
+            refuse  => response('JSON',
+                { detail => 'CSRF token validation failed' }, status => 403),
             %opts,
         );
 
@@ -279,7 +279,7 @@ class PAGI::FastAPI {
                     my $event = await $receive->();
                     if ($event->{type} eq 'http.request') {
                         $raw_body .= $event->{body} // '';
-                        last unless $event->{more_body};
+                        last unless $event->{more};
                     }
                     else {
                         last;
@@ -327,14 +327,12 @@ class PAGI::FastAPI {
                 }
             }
 
-            my $pagi_context = PAGI::Context->new($scope, $receive, $send);
             my $ctx = PAGI::FastAPI::Context->new(
                 query_params         => \%query_params,
                 body                 => $body_data,
                 form_data            => $form_data,
                 uploaded_files       => $uploaded_files,
                 scope                => $scope,
-                pagi_context         => $pagi_context,
                 background_registrar => sub ($future) { $self->_retain_background($future) },
             );
 
@@ -618,7 +616,8 @@ class PAGI::FastAPI {
         unless ($route) {
             $scope->{path_params} = {};
             my $ws = PAGI::WebSocket->new($scope, $receive, $send);
-            await $ws->close(4004, "Not Found");
+            await $ws->close_or_deny(4004, 'Not Found',
+                response('Text', 'Not Found', status => 404));
             return;
         }
 
@@ -636,7 +635,8 @@ class PAGI::FastAPI {
                 }
             }
             catch ($err) {
-                await $ws->close(1008, "Unauthorized: $err");
+                await $ws->close_or_deny(1008, "Unauthorized: $err",
+                    response('Text', "Unauthorized: $err", status => 403));
                 return;
             }
         }
@@ -646,10 +646,13 @@ class PAGI::FastAPI {
             await $handler->($ws, $resolved_deps);
         }
         catch ($err) {
-            if (!$ws->is_closed) {
-                await $ws->close(1011, "Internal Server Error");
-            }
+            await $ws->close_or_deny(1011, 'Internal Server Error',
+                response('Text', 'Internal Server Error', status => 500));
         }
+        # The call ends with the connection and the handler's on_close
+        # cleanup, so a shutting-down server waits for it, and a failing
+        # on_close fails the call for the server to log.
+        await $ws->finished;
     }
 
     method _match_route ($method, $path) {
@@ -1105,10 +1108,9 @@ specification. Default: C<'PAGI::FastAPI Application'>.
 =item * C<version> - (Optional) Version string for the OpenAPI specification.
 Default: C<'$VERSION'>.
 
-=item * C<secret> - (Optional) Application-level secret scalar. Currently used
-as the default C<secret> for L</enable_csrf> when no C<secret> is passed to
-that call directly. Storing an app-wide secret here lets you avoid repeating
-it at every call site that needs it.
+=item * C<secret> - (Optional) Application-level secret scalar. Nothing in
+PAGI::FastAPI reads it at present: L</enable_csrf> no longer takes a secret,
+because L<PAGI::Middleware::CSRF>'s tokens are random and need none.
 
 =back
 
@@ -1242,7 +1244,7 @@ Returns C<$self> to allow method chaining.
 B<Example Usage:>
 
     # Pass class name with constructor options:
-    $app->add_middleware('PAGI::Middleware::Session', secret => 'my-secret');
+    $app->add_middleware('PAGI::Middleware::Session');
 
     # Pass an instantiated middleware object:
     my $mw = PAGI::Middleware::Logger->new(level => 'debug');
@@ -1255,22 +1257,40 @@ B<Example Usage:>
 Enables Cross-Site Request Forgery (CSRF) protection on the application by
 instantiating and attaching L<PAGI::Middleware::CSRF>.
 
-By default, the middleware is configured with C<enforce =E<gt> 'header'> and
-C<secure =E<gt> 0>. Any passed C<%options> override these defaults.
+An unsafe request carries the token from the C<csrf_token> cookie in one of
+two places:
 
 =over 4
 
-=item * C<secret> (Scalar, optional)
+=item * an C<X-CSRF-Token> header, for a script or a JSON client. A header
+that is sent decides, and the body is then not read.
 
-The cryptographic secret key used to sign and verify CSRF tokens. If omitted
-from C<%options>, it falls back to the application-level C<secret> attribute
-set during L<PAGI::FastAPI> instantiation. Dies if no secret can be resolved
-from either location.
+=item * when no header is sent, the C<csrf_token> field of an
+C<application/x-www-form-urlencoded> or C<multipart/form-data> body, for a
+plain HTML form (see L<PAGI::FastAPI::Context/csrf_token>). The handler still
+gets the whole form: C<< $c->form_data >> returns it.
+
+=back
+
+A JSON body is never read, so a JSON client sends the header. By default a
+request whose token is missing or wrong is refused with C<403> and the JSON
+body C<{"detail": "CSRF token validation failed"}>, FastAPI's error shape,
+and the cookie is set with C<secure =E<gt> 0>. Any passed C<%options>
+override these defaults: C<form_field> names another field, and
+C<form_field =E<gt> undef> accepts only the header; C<refuse> replaces the
+refusal with a Response, a C<($request)> handler or an app object, and
+C<refuse =E<gt> 0> lets every request through for the handler to check (see
+L<PAGI::Middleware::CSRF>).
+
+=over 4
 
 =item * C<%options> (Hash, optional)
 
-Additional configuration arguments passed directly to L<PAGI::Middleware::CSRF/new>
-(such as C<cookie_name>, C<token_length>, or C<secure>).
+Configuration passed directly to L<PAGI::Middleware::CSRF/new>, such as
+C<cookie_name>, C<secure>, C<trusted_origins>, or C<session =E<gt> 1>, which
+keeps the token in the session (add L<PAGI::Middleware::Session> first) so a
+planted cookie cannot stand in for it. No secret is needed; passing
+C<secret> dies, as it does for the middleware.
 
 =back
 
@@ -1278,14 +1298,14 @@ Returns C<$self> to allow method chaining.
 
 B<Example Usage:>
 
-    # Uses application-level default secret:
-    my $app = PAGI::FastAPI->new(secret => 'master-app-secret');
+    my $app = PAGI::FastAPI->new;
     $app->enable_csrf();
 
-    # Custom secret and production settings:
+    # Production settings, with the token kept in the session:
+    $app->add_middleware('PAGI::Middleware::Session');
     $app->enable_csrf(
-        secret => 'csrf-specific-secret',
-        secure => 1,
+        session => 1,
+        secure  => 1,
     );
 
 =head2 C<add_cors(%options)>
@@ -1465,7 +1485,7 @@ Returns an async C<CODEREF> matching the PAGI interface C<< async sub ($scope, $
 B<Example Usage:>
 
     my $app = PAGI::FastAPI->new();
-    $app->enable_csrf(secret => 'my-secret');
+    $app->enable_csrf();
     $app->get('/health', handler => async sub ($c) { { status => 'ok' } });
 
     # Compile for server deployment or test runner

@@ -17,10 +17,12 @@ WriteMakefile(
 
     PREREQ_PM => {
         'PAGI'                        => '0.002001',
-        'PAGI::WebSocket'             => '0.002002',
-        'PAGI::SSE'                   => '0.002002',
-        'PAGI::Middleware::CORS'      => '0.002002',
-        'PAGI::Middleware::RateLimit' => '0.002002',
+        'PAGI::WebSocket'             => '0.003000',
+        'PAGI::SSE'                   => '0.003000',
+        'PAGI::Middleware::CORS'      => '0.003000',
+        'PAGI::Middleware::RateLimit' => '0.003000',
+        'PAGI::Response'              => '0.003000',
+        'PAGI::CSRF'                  => '0.003000',
         'Future::AsyncAwait'          => '0.60',
         'Type::Tiny'                  => '2.000000',
         'JSON::PP'                    => '4.00',
@@ -29,7 +31,7 @@ WriteMakefile(
     TEST_REQUIRES => {
         'Test::More'         => '1.302',
         'Test::Fatal'        => '0.017',
-        'PAGI::Test::Client' => '0.002002',
+        'PAGI::Test::Client' => '0.003000',
     },
 
     META_MERGE => {

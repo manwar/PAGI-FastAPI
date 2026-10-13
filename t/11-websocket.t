@@ -5,6 +5,8 @@ use Test::More;
 use Future::AsyncAwait;
 use JSON::PP qw(decode_json);
 use PAGI::FastAPI;
+use PAGI::FastAPI::Depends qw(Depends);
+use PAGI::Test::ConnectionState;
 
 my $app = PAGI::FastAPI->new(title => 'WebSocket Test App');
 
@@ -36,13 +38,39 @@ $app->websocket('/ws/chat/{room}',
 
 my $pagi_app = $app->to_app;
 
-subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
+# A hand-built websocket scope needs the pagi.connection object a PAGI Www
+# 0.6 server provides; a peer disconnect is recorded on it before the
+# application sees the event, as a server does. An application's own Close
+# is answered at once, as a cooperative peer does, so the closing handshake
+# completes and the call -- which ends with the connection -- can finish.
+sub ws_scope ($path) {
+    my $conn = PAGI::Test::ConnectionState->new(websocket => 1);
     my $scope = {
-        type         => 'websocket',
-        path         => '/ws/echo',
-        query_string => '',
-        headers      => [],
+        type              => 'websocket',
+        path              => $path,
+        query_string      => '',
+        headers           => [],
+        'pagi.connection' => $conn,
     };
+    my $peer_closed = sub ($event) {
+        if ($event->{type} eq 'websocket.disconnect') {
+            $conn->_set_peer_close($event->{code} // 1005, $event->{reason} // '');
+            $conn->_mark_complete;
+        }
+        return $event;
+    };
+    my $answer_close = sub ($event) {
+        if ($event->{type} eq 'websocket.close' && $conn->is_connected) {
+            $conn->_set_peer_close($event->{code} // 1000, $event->{reason} // '');
+            $conn->_mark_complete;
+        }
+        return;
+    };
+    return ($scope, $peer_closed, $answer_close);
+}
+
+subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
+    my ($scope, $peer_closed) = ws_scope('/ws/echo');
 
     # Queue of incoming client events
     my @incoming_events = (
@@ -53,7 +81,7 @@ subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
     my @sent_events;
 
     my $receive = async sub {
-        return shift @incoming_events;
+        return $peer_closed->(shift @incoming_events);
     };
 
     my $send = async sub ($event) {
@@ -70,12 +98,7 @@ subtest 'Valid WebSocket Handshake and Echo Flow' => sub {
 };
 
 subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' => sub {
-    my $scope = {
-        type         => 'websocket',
-        path         => '/ws/chat/lobby',
-        query_string => '',
-        headers      => [],
-    };
+    my ($scope, $peer_closed, $answer_close) = ws_scope('/ws/chat/lobby');
 
     my @incoming_events = (
         { type => 'websocket.receive', text => '{"action":"ping"}' },
@@ -84,11 +107,12 @@ subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' =>
     my @sent_events;
 
     my $receive = async sub {
-        return shift @incoming_events // { type => 'websocket.disconnect', code => 1000 };
+        return $peer_closed->(shift @incoming_events // { type => 'websocket.disconnect', code => 1000 });
     };
 
     my $send = async sub ($event) {
         push @sent_events, $event;
+        $answer_close->($event);
     };
 
     $pagi_app->($scope, $receive, $send)->get;
@@ -105,26 +129,79 @@ subtest 'WebSocket Route with Path Params, JSON Payload, and Handshake Close' =>
     is $sent_events[2]->{code}, 1000, 'Close code 1000 sent';
 };
 
-subtest '4004 Close Code on Non-Existent Route' => sub {
-    my $scope = {
-        type         => 'websocket',
-        path         => '/ws/nonexistent',
-        query_string => '',
-        headers      => [],
-    };
+subtest 'Non-existent route refuses the handshake with HTTP 404' => sub {
+    my ($scope, $peer_closed) = ws_scope('/ws/nonexistent');
 
     my @sent_events;
 
-    my $receive = async sub { return { type => 'websocket.disconnect' } };
+    my $receive = async sub { return { type => 'websocket.connect' } };
     my $send    = async sub ($event) {
         push @sent_events, $event;
     };
 
     $pagi_app->($scope, $receive, $send)->get;
 
-    is scalar(@sent_events), 1, 'Only one event sent for unmatched route';
-    is $sent_events[0]->{type}, 'websocket.close', 'Close event issued on non-existent route';
-    is $sent_events[0]->{code}, 4004, 'Close code 4004 Not Found returned';
+    # PAGI Www 0.6: before accept the connection is still an HTTP exchange,
+    # so it is refused with an HTTP response; websocket.close is not allowed.
+    is $sent_events[0]->{type}, 'http.response.start', 'Handshake refused with an HTTP response';
+    is $sent_events[0]->{status}, 404, 'Status 404 Not Found';
+    ok !(grep { $_->{type} eq 'websocket.close' } @sent_events), 'No websocket.close before accept';
+};
+
+# Each way _handle_websocket ends a socket it did not hand to a handler.
+sub run_ws ($app, $path) {
+    my ($scope, undef, $answer_close) = ws_scope($path);
+    my @sent;
+    my $receive = async sub { return { type => 'websocket.connect' } };
+    my $send    = async sub ($event) { push @sent, $event; $answer_close->($event); return };
+    my $died;
+    eval { $app->to_app->($scope, $receive, $send)->get; 1 } or $died = $@;
+    return (\@sent, $died, $scope);
+}
+
+subtest 'A failing dependency refuses the handshake with HTTP 403' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/private',
+        dependencies => [ Depends(async sub ($ws) { die "no token\n" }, key => 'user') ],
+        handler => async sub ($ws, $deps) { await $ws->accept });
+    my ($sent, $died) = run_ws($app, '/ws/private');
+    is $died, undef, 'the application does not die';
+    is $sent->[0]{status}, 403, 'Status 403';
+    like $sent->[1]{body}, qr/\AUnauthorized: no token/, 'the body names the failure';
+    ok !(grep { $_->{type} eq 'websocket.close' } @$sent), 'No websocket.close before accept';
+};
+
+subtest 'A handler error before accept is an HTTP 500' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/broken', handler => async sub ($ws, $deps) { die "bug\n" });
+    my ($sent, $died) = run_ws($app, '/ws/broken');
+    is $died, undef, 'the application does not die';
+    is $sent->[0]{status}, 500, 'Status 500';
+};
+
+subtest 'A handler error after accept closes with 1011' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/broken-later', handler => async sub ($ws, $deps) {
+        await $ws->accept;
+        die "bug\n";
+    });
+    my ($sent, $died) = run_ws($app, '/ws/broken-later');
+    is $died, undef, 'the application does not die';
+    is_deeply [map { $_->{type} } @$sent], ['websocket.accept', 'websocket.close'], 'accept, then Close';
+    is_deeply [@{ $sent->[1] }{qw(code reason)}], [1011, 'Internal Server Error'], 'code 1011';
+};
+
+subtest 'A client that hangs up during a dependency: nothing is sent, nothing dies' => sub {
+    my $app = PAGI::FastAPI->new;
+    $app->websocket('/ws/slow',
+        dependencies => [ Depends(async sub ($ws) {
+            $ws->scope->{'pagi.connection'}->_mark_disconnected('client_closed');
+            die "no token\n";
+        }, key => 'user') ],
+        handler => async sub ($ws, $deps) { await $ws->accept });
+    my ($sent, $died) = run_ws($app, '/ws/slow');
+    is $died, undef, 'the application does not die';
+    is_deeply $sent, [], 'nothing is sent';
 };
 
 done_testing;

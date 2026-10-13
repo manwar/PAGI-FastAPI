@@ -84,4 +84,28 @@ subtest 'Invalid Malformed JSON Payload (422 Unprocessable Entity)' => sub {
     is $res->{json}{detail}, 'Invalid JSON body payload', 'Catches bad JSON cleanly';
 };
 
+# PAGI delivers a body as one or more http.request events; every one but the
+# last carries more => 1. The body is all of them, in order.
+subtest 'A body split across http.request events is read whole' => sub {
+    my $json = encode_json({ name => 'W' x 100_000, quantity => 3 });
+    my @chunks = unpack('(a65536)*', $json);
+    my @events = map {
+        { type => 'http.request', body => $chunks[$_], more => ($_ < $#chunks ? 1 : 0) }
+    } 0 .. $#chunks;
+
+    my ($status, $body) = (undef, '');
+    my $receive = async sub { return shift(@events) // { type => 'http.disconnect' } };
+    my $send = async sub ($event) {
+        $status = $event->{status} if $event->{type} eq 'http.response.start';
+        $body  .= $event->{body} // '' if $event->{type} eq 'http.response.body';
+    };
+    $pagi_app->({ type => 'http', method => 'POST', path => '/items' }, $receive, $send)->get;
+
+    ok(@chunks > 1, 'the body really is split (' . scalar(@chunks) . ' events)');
+    is($status, 200, 'Status is 200');
+    my $res = eval { decode_json($body) } // {};
+    is(length($res->{item}{name} // ''), 100_000, 'the whole name arrived');
+    is($res->{item}{quantity}, 3, 'and the field after the split');
+};
+
 done_testing;
